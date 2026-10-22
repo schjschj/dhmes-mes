@@ -131,6 +131,28 @@ App.pages.home = function (root) {
           return '<tr><td style="width:150px"><b>' + esc(t.code) + '</b> <span class="muted">' + esc(t.name) + '</span></td><td><span class="hbar" style="width:' + Math.max(2, t.qty / mx * 100) + '%"></span></td><td class="num" style="width:80px">' + fmt(t.qty) + '</td></tr>';
         }).join('') + '</table>' : '<div class="grid-empty">이번 달 등록된 공정불량이 없습니다.' + (df.last ? ' (마지막 등록 ' + esc(df.last) + ')' : '') + '</div>'));
     }
+    // [개선] 납기 임박 · 불량률 추이 · 비가동 상위 사유 · 품질 알림
+    var x = d.extra || {};
+    if (x.due || x.downtime || x.defect_trend) {
+      var eb = '';
+      if (x.due) eb += '<div class="wo-nums" style="margin-bottom:8px"><span><b class="' + (x.due.t ? 'bad-t' : '') + '">' + x.due.t + '</b>+20일 결품 품번</span><span><b>' + x.due.s + '</b>월말 결품 품번</span>' +
+        '<span class="muted" style="font-size:11.5px">납기 ' + esc(x.due.file_date) + ' 기준</span></div>';
+      if (x.defect_trend) {
+        var mr = Math.max.apply(null, x.defect_trend.map(function (t) { return t.rate || 0; }).concat([0.0001]));
+        eb += '<div class="muted" style="font-size:12px;margin:4px 0">월별 공정불량률</div><table class="mini">' + x.defect_trend.map(function (t) {
+          return '<tr><td style="width:60px">' + esc(t.ym.slice(2)) + '</td><td><span class="hbar" style="width:' + Math.max(1, (t.rate || 0) / mr * 100) + '%"></span></td><td class="num" style="width:70px">' + pct(t.rate, 2) + '</td></tr>';
+        }).join('') + '</table>';
+      }
+      if (x.downtime && x.downtime.length) eb += '<div class="muted" style="font-size:12px;margin:8px 0 4px">이번 달 비가동 상위 사유</div><table class="mini">' + x.downtime.map(function (t) {
+        return '<tr><td>' + esc(t.name) + '</td><td class="num">' + fmt(t.min) + ' 분</td></tr>';
+      }).join('') + '</table>';
+      if (x.quality) {
+        var qd = x.quality;
+        eb += '<div class="wo-nums" style="margin-top:8px"><span><b class="' + (qd.gauge_over ? 'bad-t' : '') + '">' + qd.gauge_over + '</b>교정 지남</span><span><b>' + qd.gauge_soon + '</b>교정 임박</span>' +
+          '<span><b class="' + (qd.claims_open ? 'warn-t' : '') + '">' + qd.claims_open + '</b>미결 고객불만</span><span><b>' + qd.inproc_wait + '</b>초품 승인 대기</span></div>';
+      }
+      R.push(panel('관리 지표', x.due ? 'plan' : 'defect_report', x.due ? '납기 · 생산계획' : '불량 집계', eb));
+    }
     if (!L.length) { L = R; R = []; }
     root.querySelector('[data-left]').innerHTML = L.join('');
     root.querySelector('[data-right]').innerHTML = R.join('');

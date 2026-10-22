@@ -9,7 +9,7 @@ import datetime
 
 from meta import TABLES, COMPANY
 
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+DATA_DIR = os.environ.get("MES_DATA_DIR") or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 DB_PATH = os.path.join(DATA_DIR, "mes.db")
 
 _local = threading.local()
@@ -94,7 +94,87 @@ FIXED_SCHEMA = [
         cert_no TEXT, status TEXT DEFAULT '입고',
         note TEXT,
         created TEXT, created_by TEXT, updated TEXT, updated_by TEXT)""",
+    # 대시보드 한줄 메모
+    """CREATE TABLE IF NOT EXISTS memos(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT, user_id INTEGER,
+        created TEXT, created_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS memo_comments(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, memo_id INTEGER, text TEXT, user_id INTEGER,
+        created TEXT, created_by TEXT)""",
+    # 작업지시서 (하루 한 장, 양식 내용은 JSON)
+    """CREATE TABLE IF NOT EXISTS work_orders(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT UNIQUE, data TEXT, version INTEGER DEFAULT 1,
+        status TEXT DEFAULT '작성', written_by TEXT, written_at TEXT,
+        reviewed_by TEXT, reviewed_at TEXT, approved_by TEXT, approved_at TEXT, draft TEXT,
+        created TEXT, created_by TEXT, updated TEXT, updated_by TEXT)""",
+    # 납기 · 생산계획
+    """CREATE TABLE IF NOT EXISTS plan_uploads(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, file_date TEXT, file_time TEXT, name TEXT, rows TEXT,
+        created TEXT, created_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS plan_families(
+        fam TEXT PRIMARY KEY, main_eq INTEGER, alts TEXT, rate_d REAL, rate_n REAL, locked INTEGER DEFAULT 0,
+        note TEXT, updated TEXT, updated_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS plan_overrides(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, k1 TEXT, k2 TEXT, val TEXT, via TEXT,
+        created TEXT, created_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS plan_incoming(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, part_no TEXT, kg REAL, date TEXT, memo TEXT, done INTEGER DEFAULT 0,
+        created TEXT, created_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS plan_rules(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, eq INTEGER, fam TEXT, fam2 TEXT, text TEXT, source TEXT,
+        evidence TEXT, active INTEGER DEFAULT 1, pending INTEGER DEFAULT 0, created TEXT, created_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS plan_ai(
+        user_id INTEGER PRIMARY KEY, history TEXT, updated TEXT)""",
+    # 근태
+    """CREATE TABLE IF NOT EXISTS att_emps(
+        id TEXT PRIMARY KEY, name TEXT, dept TEXT, rank TEXT, hireDate TEXT, quitDate TEXT, memo TEXT,
+        foreign_ INTEGER DEFAULT 0, ord INTEGER, updated TEXT, updated_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS att_months(
+        ym TEXT PRIMARY KEY, roster TEXT, records TEXT, updated TEXT)""",
+    # 출하
+    """CREATE TABLE IF NOT EXISTS ship_tx(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, code TEXT, reels REAL, dest TEXT,
+        ship_date TEXT, ship_time TEXT, memo TEXT, quick INTEGER DEFAULT 0, hold_id INTEGER, batch_id INTEGER,
+        created TEXT, created_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS ship_holds(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT, reels REAL, reason TEXT, dest TEXT, hold_date TEXT,
+        memo TEXT, batch_id INTEGER, created TEXT, created_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS ship_batches(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, dest TEXT, ship_date TEXT, memo TEXT, created TEXT, created_by TEXT)""",
+    # [개선] 품질관리
+    """CREATE TABLE IF NOT EXISTS q_incoming(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, lot_no TEXT, mat_code TEXT, maker TEXT, spec TEXT,
+        weight REAL, thick_std REAL, thick_meas REAL, width_std REAL, width_meas REAL,
+        appearance TEXT, packing TEXT, cert_no TEXT, result TEXT, inspector TEXT, note TEXT,
+        created TEXT, created_by TEXT, updated TEXT, updated_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS q_inproc(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, equip_no TEXT, code TEXT, lot_no TEXT, stage TEXT,
+        reason TEXT, items TEXT, result TEXT, inspector TEXT, approved_by TEXT, approved_at TEXT, note TEXT,
+        created TEXT, created_by TEXT, updated TEXT, updated_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS q_claims(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, claim_no TEXT, date TEXT, customer TEXT, code TEXT, lot_no TEXT,
+        type TEXT, qty INTEGER, cost INTEGER, content TEXT,
+        d1_team TEXT, d2_problem TEXT, d3_contain TEXT, d4_cause TEXT, d5_action TEXT, d6_verify TEXT,
+        d7_prevent TEXT, d8_close TEXT, status TEXT, due TEXT, closed TEXT, owner TEXT, note TEXT,
+        created TEXT, created_by TEXT, updated TEXT, updated_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS q_gauges(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, gauge_no TEXT UNIQUE, name TEXT, spec TEXT, maker TEXT, serial TEXT,
+        location TEXT, owner TEXT, cal_cycle INTEGER, check_cycle INTEGER, last_cal TEXT, last_check TEXT,
+        status TEXT, note TEXT, created TEXT, created_by TEXT, updated TEXT, updated_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS q_gauge_hist(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, gauge_id INTEGER, date TEXT, kind TEXT, result TEXT, agency TEXT,
+        cert_no TEXT, cost INTEGER, worker TEXT, note TEXT, created TEXT, created_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS q_docs(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, code TEXT, title TEXT, rev TEXT, rev_date TEXT,
+        file_name TEXT, file_path TEXT, file_size INTEGER, current INTEGER DEFAULT 1, note TEXT,
+        created TEXT, created_by TEXT)""",
 ]
+
+# 이미 만든 테이블에 나중에 생긴 컬럼 (ALTER 로 보충)
+EXTRA_COLS = {
+    "users": [("note", "TEXT"), ("last_login", "TEXT")],
+    "parts_tx": [("after_qty", "INTEGER")],
+}
 
 
 def _ensure_spec_table(name, spec):
@@ -121,6 +201,11 @@ def init():
         run(sql)
     for name, spec in TABLES.items():
         _ensure_spec_table(name, spec)
+    for name, cols in EXTRA_COLS.items():
+        have = {r["name"] for r in rows('PRAGMA table_info("%s")' % name)}
+        for col, typ in cols:
+            if col not in have:
+                run('ALTER TABLE "%s" ADD COLUMN "%s" %s' % (name, col, typ))
     # 기본 설정
     if get_setting("company") is None:
         set_setting("company", COMPANY)

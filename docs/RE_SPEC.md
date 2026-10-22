@@ -130,19 +130,15 @@ qty(현재고)·safety_qty(안전재고)·unit(단위,select)·price(단가)·ma
 * 장기: 태블릿 현장입력 → 프레스 타수 자동카운터 연동(실시간 가동률·자재소모·스크랩·금형OH계획)
 
 ## 진행 현황 (TODO) — 이어서 작업할 때 여기부터
-- [x] 1단계: 백엔드 백본 (FastAPI, SQLite, 세션인증, /api/meta, /api/ping, static 서빙) — 2026-10-22 HTTP 검증 완료
-- [x] 2단계: 기준정보 11테이블 CRUD + 감사로그(/api/log) + 엑셀(/api/xlsx)
-- [~] 3단계: 대시보드 /api/dashboard — shape 일치. 타수 알람 임계(0.75/0.9/1.0)는 추정값, month_oee/month_time 미구현
-- [x] 0단계: web/ 에 원본 프론트 복사 (사용자 재사용 승인)
-- 2026-10-22 브라우저 전체 메뉴 점검: 정상 10개 (기준정보 6, 공정불량 등록, 정비이력, 수리이력, 변경기록)
-  미구현 API (화면별): home·memos(대시보드) / wo, wo/list / plan / production, production/missing, production/std
-  / report/{daily,monthly,equip,worker,month,year,defect} / molds/status / parts, parts/tx / att/data
-  / rm/data, rm/refresh(POST) / ship/stock / settings, backup/list, update/status, plan/learned / users / menu_layout
-  + [개선] 페이지 파일 없음: incoming, inproc, claims, gauges, quality_docs
-- 주의: meta.py 의 [개선] 신규 메뉴(incoming, inproc, claims, gauges, quality_docs, rawmat lot 탭)는 페이지 파일이 아직 없음
-- [ ] 4단계: 생산실적 입력 + 리포트
-- [ ] 5단계: 금형(타수알람·정비·수리) + 부품 입출고
-- [ ] 6단계: 작업지시 + 생산계획(+AI)
-- [ ] 7단계: 근태 / 원재료 / 출하
-- [ ] 8단계: 사용자·권한 / 설정·백업 / 변경기록 / 가져오기
-- [ ] 9단계: 개선제안 신규 기능 (LOT추적, 품질, 대시보드 확장 등)
+- [x] 0~8단계: 원본 전체 기능 백엔드 재구축 (v2.0.1, 2026-10-22)
+  server/ 모듈: prodcalc(작업시간·OEE) reports(보고서 7종) molds parts workorders plan(편성·AI) attendance
+  shipping rawmat(Access mdb, PowerShell ODBC) quality system(사용자·설정·백업·업데이트·메뉴배치·가져오기·메모) repaircards
+- [x] 9단계 개선제안: 품질관리 5화면(web/js/quality.js — 수입검사·초중종물(인터락)·고객불만 8D·계측기·품질문서),
+  코일 LOT 추적(rmlot), 대시보드 '관리 지표'(납기 임박·불량률 추이·비가동 상위·품질 알림),
+  월간보고 목표 대비·비가동 파레토, 불량집계 F-cost, 생산실적 생산LOT/코일LOT 열, 수리비 열
+- 검증: 테스트 DB(MES_DATA_DIR)에 샘플 넣고 API 전 경로 호출 실패 0, 브라우저 46개 메뉴 API·JS 오류 0
+- 미검증(실제 자료 필요): 창고 DataBase.mdb 읽기(표·열 이름 자동 추정), 엑셀 가져오기(생산관리 xlsm·작업지시서·
+  금형수리카드·parts_data.db·근태 json — 열 이름으로 추정), 공휴일 API(인증키), AI 도우미(anthropic 패키지 + API 키)
+- 원본과 다를 수 있는 계산: 생산계획 편성(단순화), 금형 모디파이(같은 금형 묶음) 미구현, 납기 결품 열 해석(음수=결품)
+- [ ] 남은 개선제안: OCR 작업일보 자동기입, 태블릿 현장입력, 금형 이동 현황판·사진/도면, 거래명세서 자동입력,
+  안전재고 발주 알림(원재료), 금형 부품 구매단가 분석

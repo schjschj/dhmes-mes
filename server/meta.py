@@ -6,7 +6,7 @@ k(키)·l(라벨)·t(타입)·req·hide·ref·opts·grp·w·default 를 사용�
 타입: text, num, int, date, time, select, ref, yesno, memo
 """
 
-VERSION = "2.0.0"
+VERSION = "2.0.1"
 COMPANY = "대흥공업"
 
 # ──────────────────────────────────────────────────── 기준정보 테이블
@@ -272,7 +272,7 @@ MENU_DEF = [
     ]),
     ("원재료", "원재료", [
         ("rm_stock", "원재료 재고", "rawmat", {"tab": "stock"}),
-        ("rm_lot", "코일 LOT 추적", "rawmat", {"tab": "lot"}),   # [개선] 신규
+        ("rm_lot", "코일 LOT 추적", "rmlot", {}),               # [개선] 신규
         ("rm_hist", "원재료 입출고 이력", "rawmat", {"tab": "hist"}),
     ]),
     ("출하관리", "출하관리", [
@@ -291,6 +291,8 @@ MENU_DEF = [
     ("설정", "설정", [
         ("prod_std", "생산 기준 (근무·휴게)", "prod_std", {}),
         ("prod_missing", "금형·SPM 미등록", "prod_missing", {}),
+        ("att_settings", "근태 설정", "att", {"tab": "settings"}),
+        ("att_emp", "직원 관리", "att", {"tab": "emp"}),
     ]),
     ("시스템", "시스템", [
         ("import", "데이터 가져오기", "import", {}),
@@ -301,31 +303,104 @@ MENU_DEF = [
     ]),
 ]
 
+ADMIN_ITEMS = {"users", "menu_layout"}     # 관리자만 보이는 메뉴
+FIXED_ITEMS = {"menu_layout"}              # 메뉴 배치에서 옮길 수 없음
 
-def build_menu(me):
+
+# ──────────────────────────────────────────────────── 메뉴 배치 (settings 'menu_layout')
+def _items_def():
+    """id → (orig_group, label, page, args)"""
+    out = {}
+    for gid, _, items in MENU_DEF:
+        for iid, label, page, args in items:
+            out[iid] = (gid, label, page, args)
+    return out
+
+
+def effective(layout):
+    """메뉴 배치를 적용한 대목록 목록 (홈 제외). [{key,name,orig_name,custom,items:[{id,label,...}]}]"""
+    defs = _items_def()
+    base = [(gid, gname, [i[0] for i in items]) for gid, gname, items in MENU_DEF if gid != "홈"]
+    orig_name = {gid: gname for gid, gname, _ in base}
+    layout = layout or {}
+    labels = layout.get("labels") or {}
+    if layout.get("groups"):
+        groups = [{"key": g["key"], "name": g.get("name") or orig_name.get(g["key"], g["key"]),
+                   "orig_name": orig_name.get(g["key"], ""), "custom": bool(g.get("custom")) or g["key"] not in orig_name,
+                   "ids": []} for g in layout["groups"]]
+        keys = {g["key"] for g in groups}
+        for gid, gname, _ in base:            # 배치에 없는 원래 대목록은 뒤에
+            if gid not in keys:
+                groups.append({"key": gid, "name": gname, "orig_name": gname, "custom": False, "ids": []})
+        placed = set()
+        by_key = {g["key"]: g for g in groups}
+        for t in layout.get("tree") or []:
+            g = by_key.get(t.get("group"))
+            if not g:
+                continue
+            for iid in t.get("items") or []:
+                if iid in defs and iid not in placed and iid not in FIXED_ITEMS:
+                    g["ids"].append(iid)
+                    placed.add(iid)
+        for gid, _, ids in base:              # 배치에 없는 메뉴는 원래 자리
+            for iid in ids:
+                if iid not in placed and iid not in FIXED_ITEMS:
+                    by_key[gid]["ids"].append(iid)
+                    placed.add(iid)
+        for iid in FIXED_ITEMS:
+            by_key[defs[iid][0]]["ids"].append(iid)
+    else:
+        groups = [{"key": gid, "name": gname, "orig_name": gname, "custom": False, "ids": list(ids)}
+                  for gid, gname, ids in base]
+    out = []
+    for g in groups:
+        items = []
+        for iid in g["ids"]:
+            og, label, page, args = defs[iid]
+            items.append({"id": iid, "label": labels.get(iid, label), "orig_label": label, "orig_group": og,
+                          "page": page, "args": args, "fixed": iid in FIXED_ITEMS, "admin": iid in ADMIN_ITEMS})
+        out.append({"group": g["key"], "key": g["key"], "name": g["name"], "orig_name": g["orig_name"],
+                    "custom": g["custom"], "items": items})
+    return out
+
+
+def groups_holding(layout, orig_group):
+    """원래 대목록 orig_group 의 메뉴가 지금 들어 있는 대목록들 (권한 검사용)."""
+    out = {orig_group}
+    for g in effective(layout):
+        if any(it["orig_group"] == orig_group for it in g["items"]):
+            out.add(g["key"])
+    return out
+
+
+def build_menu(me, layout=None):
     """사용자 권한(me.perms)에 맞춰 볼 수 있는 메뉴만 구성."""
-    groups = []
-    for gid, gname, items in MENU_DEF:
-        lv = 3 if (me.get("admin") or gid == "홈") else me.get("perms", {}).get(gid, 0)
+    home = MENU_DEF[0]
+    groups = [{"group": "홈", "name": "홈", "items": [{
+        "group": "홈", "group_name": "홈", "id": iid, "label": label, "page": page, "args": args,
+        "order": 0, "need": 1, "orig_group": "홈", "orig_label": label} for iid, label, page, args in home[2]]}]
+    for g in effective(layout):
+        lv = 3 if me.get("admin") else me.get("perms", {}).get(g["key"], 0)
         if lv <= 0:
             continue
-        out_items = []
-        for i, (iid, label, page, args) in enumerate(items):
-            out_items.append({
-                "group": gid, "group_name": gname, "id": iid, "label": label,
-                "page": page, "args": args, "order": i * 10, "need": 1,
-            })
-        if out_items:
-            groups.append({"group": gid, "name": gname, "items": out_items})
+        items = []
+        for i, it in enumerate(g["items"]):
+            if it["admin"] and not me.get("admin"):
+                continue
+            items.append({"group": g["key"], "group_name": g["name"], "id": it["id"], "label": it["label"],
+                          "page": it["page"], "args": it["args"], "order": i * 10, "need": 1,
+                          "orig_group": it["orig_group"], "orig_label": it["orig_label"]})
+        if items:
+            groups.append({"group": g["key"], "name": g["name"], "items": items})
     return groups
 
 
-def meta_for(me, settings):
+def meta_for(me, settings, layout=None):
     return {
         "version": VERSION,
         "company": settings.get("company", COMPANY),
         "me": me,
-        "menu": build_menu(me),
+        "menu": build_menu(me, layout),
         "tables": TABLES,
         "settings": {"company": settings.get("company", COMPANY)},
     }

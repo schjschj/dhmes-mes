@@ -6,6 +6,10 @@ App.pages.settings = function (root) {
     '<label class="f full"><span>회사명 (화면 왼쪽 위에 표시)</span><input class="input" data-s="company"></label>' +
     '<label class="f"><span>금형 1차 알람 — 잔여율 (%) 이하</span><input class="input num" data-s="mold_alarm1" data-pct></label>' +
     '<label class="f"><span>금형 2차 알람 — 잔여율 (%) 이하</span><input class="input num" data-s="mold_alarm2" data-pct></label>' +
+    '<label class="f"><span>[목표] 월 생산량 (EA)</span><input class="input num" data-s="target_month_qty"></label>' +
+    '<label class="f"><span>[목표] OEE (%)</span><input class="input num" data-s="target_oee" data-pct></label>' +
+    '<label class="f"><span>[목표] 공정불량률 (%) 이하</span><input class="input num" data-s="target_defect_rate" data-pct></label>' +
+    '<label class="f"><span>초품 승인 인터락</span><select class="input" data-s="interlock_first"><option value="0">끔</option><option value="1">켬 — 초품 승인 없으면 생산실적 입력 막음</option></select></label>' +
     '</div><div style="margin-top:12px"><button class="btn primary" data-a="save">설정 저장</button></div></div></div>' +
     '<div class="panel"><div class="panel-h">백업<span class="grow"></span><button class="btn small" data-a="now">지금 백업</button><button class="btn small" data-a="dl">현재 DB 내려받기</button></div><div class="panel-b">' +
     '<p class="desc" style="margin-top:0">서버가 매일 자동으로 백업합니다. 오래된 백업은 설정한 기간(기본 60일)이 지나면 지워집니다. 가끔 <b>현재 DB 내려받기</b>로 USB 등 다른 곳에도 보관하세요.</p>' +
@@ -24,6 +28,7 @@ App.pages.settings = function (root) {
         if (el.dataset.s === 'company') v = v || App.meta.company;
         if (el.dataset.s === 'mold_alarm1') v = v || '0.2';
         if (el.dataset.s === 'mold_alarm2') v = v || '0.1';
+        if (el.dataset.s === 'interlock_first') v = v || '0';
         el.value = el.hasAttribute('data-pct') ? Math.round(Number(v) * 1000) / 10 : v;
       });
     });
