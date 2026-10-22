@@ -133,7 +133,12 @@ qty(현재고)·safety_qty(안전재고)·unit(단위,select)·price(단가)·ma
 - [x] 1단계: 백엔드 백본 (FastAPI, SQLite, 세션인증, /api/meta, /api/ping, static 서빙) — 2026-10-22 HTTP 검증 완료
 - [x] 2단계: 기준정보 11테이블 CRUD + 감사로그(/api/log) + 엑셀(/api/xlsx)
 - [~] 3단계: 대시보드 /api/dashboard — shape 일치. 타수 알람 임계(0.75/0.9/1.0)는 추정값, month_oee/month_time 미구현
-- [ ] 0단계(사용자): web/ 에 원본 프론트 복사 + web/index.html 작성 — 아직 안 됨. 없으면 화면이 안 뜸
+- [x] 0단계: web/ 에 원본 프론트 복사 (사용자 재사용 승인)
+- 2026-10-22 브라우저 전체 메뉴 점검: 정상 10개 (기준정보 6, 공정불량 등록, 정비이력, 수리이력, 변경기록)
+  미구현 API (화면별): home·memos(대시보드) / wo, wo/list / plan / production, production/missing, production/std
+  / report/{daily,monthly,equip,worker,month,year,defect} / molds/status / parts, parts/tx / att/data
+  / rm/data, rm/refresh(POST) / ship/stock / settings, backup/list, update/status, plan/learned / users / menu_layout
+  + [개선] 페이지 파일 없음: incoming, inproc, claims, gauges, quality_docs
 - 주의: meta.py 의 [개선] 신규 메뉴(incoming, inproc, claims, gauges, quality_docs, rawmat lot 탭)는 페이지 파일이 아직 없음
 - [ ] 4단계: 생산실적 입력 + 리포트
 - [ ] 5단계: 금형(타수알람·정비·수리) + 부품 입출고

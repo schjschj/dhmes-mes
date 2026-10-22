@@ -196,6 +196,9 @@ async def index():
 
 @app.get("/{path:path}")
 async def spa(path: str):
+    # 아직 구현 안 된 API 는 JSON 오류로 — index.html 을 주면 화면이 엉뚱한 오류를 냄
+    if path.startswith("api/"):
+        return JSONResponse({"error": "아직 구현되지 않은 기능입니다: /" + path}, status_code=501)
     # API 외 나머지는 프론트로 (해시 라우팅이라 보통 / 로 충분)
     full = os.path.join(WEB_DIR, path)
     if os.path.isfile(full):
