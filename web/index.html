@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>대흥공업 통합관리</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%231d2733'/%3E%3Cpath d='M8 9h16v4H8zM11 15h10v8H11z' fill='%23f08c2e'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<div id="app">
+  <aside id="side">
+    <div class="brand">
+      <div class="logo">DH</div>
+      <div><div class="brand-name" id="brandName">대흥공업</div><div class="brand-sub">통합관리</div></div>
+    </div>
+    <nav id="nav"></nav>
+    <div class="side-foot" id="sideFoot"></div>
+  </aside>
+  <main id="main">
+    <header id="top">
+      <button class="icon-btn" id="navToggle" title="메뉴">☰</button>
+      <div class="crumb"><span id="crumbGroup"></span><b id="crumbTitle"></b></div>
+      <div class="top-right">
+        <span class="conn" id="conn" title="서버 연결 상태"></span>
+        <button class="user-chip" id="userChip" title="사용자 바꾸기"></button>
+      </div>
+    </header>
+    <section id="page"></section>
+  </main>
+</div>
+<div id="toasts"></div>
+<script src="/js/core.js"></script>
+<script src="/js/shared.js"></script>
+<script src="/js/ai.js"></script>
+<script src="/js/knowhow.js"></script>
+<script src="/js/prod_day.js"></script>
+</body>
+</html>
