@@ -130,8 +130,9 @@ def _num(v):
         return None
 
 
-def inbound(data, ip):
-    """명세서 앱 → MES. 같은 명세서(앱 접수번호 · 사진)를 다시 보내면 처음 결과를 그대로 돌려줌."""
+def inbound(data, ip, file_path=None, by=None, src="명세서 앱"):
+    """명세서 앱 → MES. 같은 명세서(앱 접수번호 · 사진)를 다시 보내면 처음 결과를 그대로 돌려줌.
+    MES 모바일 촬영(/m/receipt)도 같은 길로 들어옴 (file_path = 올려 둔 사진, by = 로그인한 사람)."""
     h = data.get("header") or {}
     sup = h.get("supplier") or {}
     summ = h.get("summary") or {}
@@ -149,9 +150,9 @@ def inbound(data, ip):
                     "message": "이미 MES 에 등록된 명세서입니다 (MES-%d)." % old["id"]}
     kind = "금형부품" if is_mold_supplier(sup.get("company_name"), sup.get("biz_no")) else "일반"
     worker = data.get("worker_name") or data.get("worker_id") or "명세서 앱"
-    by = "명세서 앱 (%s)" % worker
+    by = by or "명세서 앱 (%s)" % worker
     # 사진 보관
-    path = None
+    path = file_path
     if data.get("image_b64"):
         try:
             buf = base64.b64decode(data["image_b64"])
@@ -171,7 +172,7 @@ def inbound(data, ip):
                     kind,status,ext_id,supplier_biz,supply,vat,receiver,worker,raw)
                     VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                  (h.get("invoice_date") or db.now()[:10], sup.get("company_name").strip(), h.get("invoice_number") or "", total,
-                  "%s.jpg" % (ext or "receipt"), path, "명세서 앱", data.get("confidence_notes") or "", db.now(), by,
+                  "%s.jpg" % (ext or "receipt"), path, src, data.get("confidence_notes") or "", db.now(), by,
                   kind, "등록", ext, sup.get("biz_no") or "", supply, vat,
                   buyer.get("receiver_name") or "", worker, json.dumps(raw, ensure_ascii=False)))
     inv = cur.lastrowid
@@ -201,13 +202,29 @@ def inbound(data, ip):
                 mold, code, match, _num(it.get("tax")), json.dumps(cands, ensure_ascii=False) if cands else None))
     status = ("확인 필요" if n_wait else "입고 완료") if kind == "금형부품" else "등록"
     db.run("UPDATE invoices SET status=? WHERE id=?", (status, inv))
-    db.log(by, ip, "invoices", "create", inv, "거래명세서 앱 %s %s %s 품목 %d%s" % (
-        kind, sup.get("company_name"), h.get("invoice_date"), len(items),
+    db.log(by, ip, "invoices", "create", inv, "거래명세서 %s %s %s %s 품목 %d%s" % (
+        src, kind, sup.get("company_name"), h.get("invoice_date"), len(items),
         (" · 자동 입고 %d · 확인 필요 %d" % (n_in, n_wait)) if kind == "금형부품" else ""))
     msg = "MES 등록 완료 (MES-%d, %s)" % (inv, kind)
     if kind == "금형부품":
         msg += " — 자동 입고 %d건%s" % (n_in, (", 확인 필요 %d건 (MES 구매관리에서 처리)" % n_wait) if n_wait else "")
     return {"success": True, "inbound_id": "MES-%d" % inv, "status": status, "kind": kind, "auto_in": n_in, "pending": n_wait, "message": msg}
+
+
+def mobile(b, user, ip):
+    """MES 모바일 촬영: 사진 → /api/invoice/read (OCR) → 휴대폰에서 확인 · 고침 → 여기로.
+    금형부품 업체면 자동 입고, 아니면 일반 거래명세서 (명세서 앱과 같은 규칙)."""
+    token = os.path.basename(b.get("token") or "")
+    path = os.path.join(IMG_DIR, token) if token and os.path.isfile(os.path.join(IMG_DIR, token)) else None
+    items = [x for x in (b.get("items") or []) if (x.get("item") or "").strip()]
+    data = {"header": {"invoice_date": b.get("date") or db.now()[:10], "invoice_number": b.get("doc_no") or "",
+                       "supplier": {"company_name": (b.get("supplier") or "").strip()},
+                       "summary": {"total_amount": _int(b.get("total"))}},
+            "items": [{"item_no": i + 1, "item_name": x["item"].strip(), "specification": (x.get("spec") or "").strip(),
+                       "quantity": x.get("qty"), "unit": x.get("unit") or "", "unit_price": x.get("unit_price"),
+                       "amount": x.get("amount"), "remarks": x.get("note") or ""} for i, x in enumerate(items)],
+            "receipt_id": ("mobile_" + token) if token else "", "worker_name": user}
+    return inbound(data, ip, file_path=path, by=user, src="모바일 촬영")
 
 
 # ──────────────────────────────────────────── 화면

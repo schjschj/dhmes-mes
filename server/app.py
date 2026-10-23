@@ -1420,6 +1420,44 @@ async def api_rc_parts(req: Request):
     return JSONResponse(receipts.parts_for(q(req, "mold")))
 
 
+@app.get("/api/rc/mobile_url")
+async def api_rc_mobile_url(req: Request):
+    """휴대폰에서 열 주소 — 사내 망 IP (PC 의 localhost 주소는 휴대폰에서 안 열림)."""
+    me, err = guard(req, "구매관리", 1)
+    if err:
+        return err
+    import socket
+    ips = []
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("10.255.255.255", 1))          # 실제로 보내지 않음 — 기본 경로의 내 IP 만 얻음
+        ips.append(s.getsockname()[0])
+        s.close()
+    except OSError:
+        pass
+    try:
+        ips += [i for i in socket.gethostbyname_ex(socket.gethostname())[2] if i not in ips and not i.startswith("127.")]
+    except OSError:
+        pass
+    lan = [i for i in ips if i.startswith(("192.168.", "10."))]       # 172.x 는 대개 WSL · Hyper-V 가상망
+    ips = lan or ips[:1]
+    port = req.url.port or 80
+    return JSONResponse({"urls": ["http://%s:%s/m/receipt" % (i, port) for i in ips], "path": "/m/receipt"})
+
+
+@app.post("/api/rc/mobile")
+async def api_rc_mobile(req: Request):
+    me, err = guard(req, "구매관리", 2)
+    if err:
+        return err
+    return run(receipts.mobile, await body(req), me["name"], client_ip(req))
+
+
+@app.get("/m/receipt")
+async def m_receipt_page():
+    return FileResponse(os.path.join(WEB_DIR, "receipt_m.html"), headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/api/rc/{iid}")
 async def api_rc_detail(iid: int, req: Request):
     me, err = guard(req, "구매관리", 1)

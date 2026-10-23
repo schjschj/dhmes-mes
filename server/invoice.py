@@ -39,7 +39,7 @@ def _n(v):
         return None
     if isinstance(v, (int, float)):
         return float(v)
-    t = str(v).replace(",", "").replace("₩", "").replace("원", "").strip()
+    t = str(v).replace(",", "").replace("₩", "").replace("원", "").replace("이", "0").strip()    # OCR: 100,000 → '10이000'
     try:
         return float(t)
     except ValueError:
@@ -147,23 +147,60 @@ def _grid_csv(buf):
     return [r for r in csv.reader(io.StringIO(text))]
 
 
-def _from_image(buf):
-    res = ocr.read(buf, 2.0)
-    rows = ocr.rows(res)
-    # 머리글 줄 찾기 → 칸 가로 위치
-    hdr, cols = None, []
+def _header(rows):
+    """머리글 줄 찾기 → (줄, [(칸 키, 가로 위치)])"""
     for r in rows:
         found = []
         for t, x, w in zip(r["cells"], r["xs"], r["ws"]):
             tt = re.sub(r"\s", "", t).upper()
-            for key, kws in COLS:
+            for key, kws in COLS + [("code", ["NO", "품번", "부품번호", "도번"])]:
                 if any(tt.startswith(k.upper()) for k in kws):
                     found.append((key, x + w / 2.0))
                     break
         keys = {k for k, _ in found}
         if "item" in keys and ({"qty", "amount", "unit_price"} & keys):
-            hdr, cols = r, found
-            break
+            return r, found
+        if len(keys) >= 3 and "qty" in keys and ({"amount", "unit_price"} & keys):
+            # '품목' 머리글을 못 읽음 (띄어 쓴 큰 글씨 등): 맨 왼쪽 칸 바로 왼쪽을 품목 칸으로
+            xs = sorted(x for _, x in found)
+            gap = min((b - a for a, b in zip(xs, xs[1:]) if b - a > 20), default=150)
+            return r, found + [("item", xs[0] - gap * 1.2)]
+    return None, []
+
+
+def _score(res):
+    """제대로 읽혔는지 — 두 글자 이상 한글 낱말 · 천 단위 숫자 개수 (옆으로 누운 사진은 거의 0)."""
+    return len(re.findall(r"[가-힣]{2,}|\d{1,3}(?:,\d{3})+", res["text"]))
+
+
+def _upright(buf):
+    """휴대폰으로 옆으로 찍은 사진: 머리글을 못 찾으면 90° · 270° · 180° 돌려서 가장 잘 읽히는 쪽 → (OCR 결과, 줄, 그림)."""
+    res = ocr.read(buf, 2.0)
+    rows = ocr.rows(res)
+    if _header(rows)[0]:
+        return res, rows, buf
+    try:
+        from PIL import Image, ImageOps
+        im = ImageOps.exif_transpose(Image.open(io.BytesIO(buf))).convert("RGB")
+    except Exception:
+        return res, rows, buf
+    best = (_score(res), res, rows, buf)
+    for deg in (90, 270, 180):
+        out = io.BytesIO()
+        im.rotate(deg, expand=True).save(out, "JPEG", quality=90)
+        b2 = out.getvalue()
+        r2 = ocr.read(b2, 2.0)
+        rw2 = ocr.rows(r2)
+        if _header(rw2)[0]:
+            return r2, rw2, b2
+        if _score(r2) > best[0]:
+            best = (_score(r2), r2, rw2, b2)
+    return best[1], best[2], best[3]
+
+
+def _from_image(buf):
+    res, rows, buf = _upright(buf)
+    hdr, cols = _header(rows)
     items = []
     if hdr:
         for r in rows:
@@ -174,12 +211,13 @@ def _from_image(buf):
                 key = min(cols, key=lambda k: abs(k[1] - (cx + cw / 2.0)))[0]
                 x[key] = (x[key] + " " + t) if x.get(key) else t
             name = (x.get("item") or "").strip()
-            if re.sub(r"\s", "", name) in ("합계", "계", "총계", "소계"):
+            flat = re.sub(r"\s", "", " ".join(r["cells"]))
+            if re.sub(r"\s", "", name) in ("합계", "계", "총계", "소계") or re.search(r"인수자|이하여백|합계금액|공급가액|전미수|인수인", flat):
                 break
             if not name:
                 continue
             y = {"item": name}
-            for k in ("spec", "material", "unit", "note"):
+            for k in ("spec", "material", "unit", "note", "code"):
                 if x.get(k):
                     y[k] = x[k].strip()
             for k in NUMS:
@@ -187,6 +225,8 @@ def _from_image(buf):
                     v = _n(x[k].split()[-1])
                     if v is not None:
                         y[k] = v
+            if not y.get("qty") and y.get("unit_price") and y.get("amount") and y["amount"] % y["unit_price"] == 0:
+                y["qty"] = y["amount"] / y["unit_price"]       # 수량을 못 읽음 → 금액 ÷ 단가
             if y.get("qty") or y.get("amount"):
                 items.append(y)
     else:
@@ -200,8 +240,13 @@ def _from_image(buf):
                     if name:
                         items.append({"item": name, "qty": q, "unit_price": p, "amount": amt})
                     break
+    # 'NO' 칸이 순번(1, 2, 3 …)이면 버림 — 금형부품 명세서의 NO 는 부품번호(166, P23-3)
+    if items and all(re.fullmatch(r"\d{1,2}", it.get("code") or "") for it in items if it.get("code")) and \
+            [int(it["code"]) for it in items if it.get("code")] == list(range(1, 1 + sum(1 for it in items if it.get("code")))):
+        for it in items:
+            it.pop("code", None)
     cells_by_row = [r["cells"] for r in rows]
-    return res["text"], cells_by_row, items
+    return res["text"], cells_by_row, items, buf
 
 
 def _match(items):
@@ -262,7 +307,7 @@ def read(name, buf, user):
         cells_by_row = [[("" if c is None else str(c)) for c in r] for r in grid]
         text = "\n".join(" ".join(c for c in r if c) for r in cells_by_row)
     else:
-        text, cells_by_row, items = _from_image(buf)
+        text, cells_by_row, items, buf = _from_image(buf)      # 돌려서 읽었으면 바로 선 그림으로 보관
     os.makedirs(INV_DIR, exist_ok=True)
     safe = re.sub(r"[^\w.\-가-힣]", "_", name or "invoice")[-80:]
     token = "%s_%s" % (db.now().replace(":", "").replace(" ", "_").replace("-", ""), safe)

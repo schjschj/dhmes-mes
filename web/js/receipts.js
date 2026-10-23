@@ -40,10 +40,25 @@
     }).catch(App.err);
   }
 
+  // 휴대폰 촬영 주소 (사내 Wi-Fi 에서 /m/receipt)
+  function mobileDialog() {
+    App.get('/api/rc/mobile_url').then(function (m) {
+      var here = location.hostname !== 'localhost' && location.hostname !== '127.0.0.1' ? location.origin + m.path : '';
+      var urls = (here ? [here] : []).concat(m.urls.filter(function (u) { return u !== here; }));
+      App.dialog({ title: '휴대폰으로 명세서 찍기', wide: true, body: '<div style="line-height:1.8">회사 Wi-Fi 에 연결한 휴대폰의 인터넷(크롬 · 삼성 인터넷 · 사파리) 주소창에 아래 주소를 넣으세요.' +
+        urls.map(function (u) { return '<div style="font-size:22px;font-weight:700;margin:6px 0;user-select:all">' + esc(u) + '</div>'; }).join('') +
+        '<div class="notice" style="margin-top:8px">MES 계정으로 로그인 → [명세서 사진 찍기] → 읽은 글자 확인 · 고침 → [MES 에 등록].<br>' +
+        '금형부품 업체 명세서는 금형부품 재고에 바로 입고되고, 나머지는 일반 거래명세서로 들어옵니다.<br>' +
+        '휴대폰 홈 화면에 바로가기를 추가해 두면 편합니다. 열리지 않으면 이 PC 의 Windows 방화벽에서 MES 포트(' + esc(location.port || '80') + ')를 허용해야 합니다.</div></div>',
+        buttons: [{ label: '닫기' }] });
+    }).catch(App.err);
+  }
+
   function listPage(root, o) {
     var lv = App.curLevel || 0;
     root.innerHTML = '<div class="page-full"><div class="desc">' + o.desc + '</div>' +
       '<div class="toolbar">' + (o.seg || '') + '<span data-period style="display:contents"></span><input class="input search" placeholder="업체 · 품목 검색"><span class="grow"></span>' +
+      '<button class="btn" data-a="mobile">📱 휴대폰으로 찍기</button>' +
       (App.meta && App.meta.me && App.meta.me.admin ? '<button class="btn" data-a="cfg">연동 설정</button>' : '') +
       (lv >= 3 ? '<button class="btn danger" data-a="del">삭제</button>' : '') + '<button class="btn" data-a="xlsx">엑셀로 저장</button></div>' +
       '<div data-top></div><div data-box style="flex:1;display:flex;flex-direction:column;min-height:0"></div></div>';
@@ -51,6 +66,7 @@
     root.querySelector('.toolbar').addEventListener('click', function (e) {
       var a = e.target.dataset && e.target.dataset.a; if (!a) return;
       if (a === 'cfg') cfgDialog();
+      else if (a === 'mobile') mobileDialog();
       else if (a === 'xlsx' && o.grid()) App.exportXlsx(o.title + '_' + App.stamp() + '.xlsx', [o.grid().sheet(o.title)]);
       else if (a === 'del') {
         var r = o.grid() && o.grid().selected(); if (!r || !r.supplier) return App.toast('목록에서 명세서를 먼저 고르세요.', 'warn');
