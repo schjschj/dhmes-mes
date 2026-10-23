@@ -292,10 +292,11 @@ def commit(b, user, ip, can_parts):
     token = os.path.basename(b.get("token") or "")
     path = os.path.join(INV_DIR, token) if token and os.path.isfile(os.path.join(INV_DIR, token)) else None
     total = sum(_n(x.get("amount")) or 0 for x in items)
-    cur = db.run("""INSERT INTO invoices(date,supplier,doc_no,total,file_name,file_path,src,note,created,created_by)
-                    VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                 (date, supplier, b.get("doc_no") or "", round(total), b.get("file_name") or "", path, b.get("src") or "",
-                  b.get("note") or "", db.now(), user))
+    kind = "금형부품" if any(x.get("target") == "금형부품" for x in items) else "일반"
+    cur = db.run("""INSERT INTO invoices(date,supplier,doc_no,total,file_name,file_path,src,note,created,created_by,kind,status,supply)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                 (date, supplier, b.get("doc_no") or "", round(total), b.get("file_name") or "", path, b.get("src") or "직접 입력",
+                  b.get("note") or "", db.now(), user, kind, "입고 완료" if kind == "금형부품" else "등록", round(total)))
     inv = cur.lastrowid
     done = {"금형부품": 0, "새 부품": 0, "원재료": 0, "기타": 0}
     for i, x in enumerate(items):
@@ -333,10 +334,11 @@ def commit(b, user, ip, can_parts):
             done["원재료"] += 1
         else:
             done["기타"] += 1
-        db.run("""INSERT INTO invoice_items(invoice_id,seq,target,item,spec,material,qty,unit,unit_price,amount,part_id,lot_no,mat_code,weight,ref_id,note)
-                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        db.run("""INSERT INTO invoice_items(invoice_id,seq,target,item,spec,material,qty,unit,unit_price,amount,part_id,lot_no,mat_code,weight,ref_id,note,match)
+                  VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                (inv, i + 1, tgt, x["item"].strip(), x.get("spec") or "", x.get("material") or "", qty, x.get("unit") or "", up, amt,
-                part_id, lot, x.get("mat_code") or "", _n(x.get("weight")), ref, x.get("note") or ""))
+                part_id, lot, x.get("mat_code") or "", _n(x.get("weight")), ref, x.get("note") or "",
+                "수동 입고" if tgt == "금형부품" else ""))
     db.log(user, ip, "invoices", "create", inv, "거래명세서 %s %s 품목 %d" % (supplier, date, len(items)))
     return {"id": inv, "done": done}
 

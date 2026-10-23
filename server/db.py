@@ -200,6 +200,10 @@ FIXED_SCHEMA = [
 EXTRA_COLS = {
     "users": [("note", "TEXT"), ("last_login", "TEXT")],
     "parts_tx": [("after_qty", "INTEGER"), ("price", "REAL"), ("supplier", "TEXT"), ("invoice_id", "INTEGER")],
+    # [연동] 거래명세서 앱(dhmes-receipt) → kind: 금형부품/일반, status: 입고 완료/확인 필요/등록
+    "invoices": [("kind", "TEXT"), ("status", "TEXT"), ("ext_id", "TEXT"), ("supplier_biz", "TEXT"), ("supply", "INTEGER"),
+                 ("vat", "INTEGER"), ("receiver", "TEXT"), ("worker", "TEXT"), ("raw", "TEXT")],
+    "invoice_items": [("mold_no", "TEXT"), ("part_code", "TEXT"), ("match", "TEXT"), ("tax", "REAL"), ("cands", "TEXT")],
 }
 
 

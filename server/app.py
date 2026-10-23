@@ -36,6 +36,7 @@ import floor
 import moldx
 import rmx
 import invoice
+import receipts
 from common import client_ip, need_login, me_of, guard, admin_only, bad, ok, body, level, get_json
 from meta import meta_for, VERSION, TABLES
 from tables import TABLE_GROUP
@@ -1316,7 +1317,7 @@ async def api_rmx_yield(req: Request):
 
 @app.post("/api/invoice/read")
 async def api_invoice_read(req: Request):
-    me, err = guard(req, "원재료", 2)
+    me, err = guard(req, "구매관리", 2)
     if err:
         return err
     return run(invoice.read, q(req, "name") or "", await req.body(), me["name"])
@@ -1324,7 +1325,7 @@ async def api_invoice_read(req: Request):
 
 @app.post("/api/invoice/commit")
 async def api_invoice_commit(req: Request):
-    me, err = guard(req, "원재료", 2)
+    me, err = guard(req, "구매관리", 2)
     if err:
         return err
     return run(invoice.commit, await body(req), me["name"], client_ip(req), level(me, "금형관리") >= 2)
@@ -1332,7 +1333,7 @@ async def api_invoice_commit(req: Request):
 
 @app.get("/api/invoice/list")
 async def api_invoice_list(req: Request):
-    me, err = guard(req, "원재료", 1)
+    me, err = guard(req, "구매관리", 1)
     if err:
         return err
     return JSONResponse(invoice.list_inv(q(req, "d1"), q(req, "d2")))
@@ -1340,7 +1341,7 @@ async def api_invoice_list(req: Request):
 
 @app.get("/api/invoice/{iid}/items")
 async def api_invoice_items(iid: int, req: Request):
-    me, err = guard(req, "원재료", 1)
+    me, err = guard(req, "구매관리", 1)
     if err:
         return err
     return JSONResponse(invoice.items_of(iid))
@@ -1348,7 +1349,7 @@ async def api_invoice_items(iid: int, req: Request):
 
 @app.get("/api/invoice/{iid}/file")
 async def api_invoice_file(iid: int, req: Request):
-    me, err = guard(req, "원재료", 1)
+    me, err = guard(req, "구매관리", 1)
     if err:
         return err
     p, n = invoice.file_of(iid)
@@ -1359,10 +1360,88 @@ async def api_invoice_file(iid: int, req: Request):
 
 @app.delete("/api/invoice/{iid}")
 async def api_invoice_del(iid: int, req: Request):
-    me, err = guard(req, "원재료", 3)
+    me, err = guard(req, "구매관리", 3)
     if err:
         return err
     return run(invoice.delete, iid, me["name"], client_ip(req))
+
+
+# ════════════════════════════════════════════ [연동] 거래명세서 앱 (dhmes-receipt) · 구매관리
+@app.post("/api/purchases/inbound")
+async def api_purchases_inbound(req: Request):
+    """명세서 앱의 MES_API_BASE_URL=http://<MES>:8001/api , MES_API_KEY=<구매관리 화면의 연동 키>"""
+    if not receipts.check_key(req.headers.get("authorization")):
+        return JSONResponse({"success": False, "message": "MES 연동 키가 맞지 않습니다 (MES 구매관리 화면에서 확인)."}, status_code=401)
+    try:
+        return JSONResponse(receipts.inbound(await req.json(), client_ip(req)))
+    except ValueError as e:
+        return JSONResponse({"success": False, "message": str(e)}, status_code=400)
+
+
+@app.get("/api/rc/cfg")
+async def api_rc_cfg(req: Request):
+    me, err = guard(req, "구매관리", 1)
+    if err:
+        return err
+    return JSONResponse(receipts.cfg_view(bool(me.get("admin"))))
+
+
+@app.put("/api/rc/cfg")
+async def api_rc_cfg_put(req: Request):
+    me, err = admin_only(req)
+    if err:
+        return err
+    r = receipts.save_cfg(await body(req))
+    db.log(me["name"], client_ip(req), "settings", "update", "receipt_cfg", "거래명세서 앱 연동 설정 변경")
+    return JSONResponse(r)
+
+
+@app.get("/api/rc/list")
+async def api_rc_list(req: Request):
+    me, err = guard(req, "구매관리", 1)
+    if err:
+        return err
+    return JSONResponse(receipts.list_(q(req, "kind") or "", q(req, "d1"), q(req, "d2")))
+
+
+@app.get("/api/rc/summary")
+async def api_rc_summary(req: Request):
+    me, err = guard(req, "구매관리", 1)
+    if err:
+        return err
+    return JSONResponse(receipts.summary(q(req, "d1") or "0000-00-00", q(req, "d2") or "9999-99-99"))
+
+
+@app.get("/api/rc/parts")
+async def api_rc_parts(req: Request):
+    me, err = guard(req, "구매관리", 1)
+    if err:
+        return err
+    return JSONResponse(receipts.parts_for(q(req, "mold")))
+
+
+@app.get("/api/rc/{iid}")
+async def api_rc_detail(iid: int, req: Request):
+    me, err = guard(req, "구매관리", 1)
+    if err:
+        return err
+    return run(receipts.detail, iid)
+
+
+@app.put("/api/rc/{iid}")
+async def api_rc_update(iid: int, req: Request):
+    me, err = guard(req, "구매관리", 2)
+    if err:
+        return err
+    return run(receipts.update_general, iid, await body(req), me["name"], client_ip(req))
+
+
+@app.post("/api/rc/item/{tid}/resolve")
+async def api_rc_resolve(tid: int, req: Request):
+    me, err = guard(req, "구매관리", 2)
+    if err:
+        return err
+    return run(receipts.resolve, tid, await body(req), me["name"], client_ip(req))
 
 
 # ════════════════════════════════════════════ 한줄 메모

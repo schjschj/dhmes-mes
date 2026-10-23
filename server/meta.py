@@ -6,7 +6,7 @@ k(키)·l(라벨)·t(타입)·req·hide·ref·opts·grp·w·default 를 사용�
 타입: text, num, int, date, time, select, ref, yesno, memo
 """
 
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 COMPANY = "대흥공업"
 
 # ──────────────────────────────────────────────────── 기준정보 테이블
@@ -230,7 +230,7 @@ TABLES = {
 }
 
 # 권한 그룹 (원본의 난수 그룹 @mve5bmwfs6 → '설정' 으로 정리)
-PERM_GROUPS = ["생산관리", "품질관리", "금형관리", "근태관리", "원재료", "출하관리", "기준정보", "설정", "시스템"]
+PERM_GROUPS = ["생산관리", "품질관리", "금형관리", "근태관리", "원재료", "구매관리", "출하관리", "기준정보", "설정", "시스템"]
 
 # ──────────────────────────────────────────────────── 메뉴
 # (group, group_label, [(id, label, page, args)])
@@ -280,7 +280,11 @@ MENU_DEF = [
         ("rm_lot", "코일 LOT 추적", "rmlot", {}),               # [개선] 신규
         ("rm_hist", "원재료 입출고 이력", "rawmat", {"tab": "hist"}),
         ("rm_need", "소요량 · 수율 · 발주 알림", "rm_need", {}),     # [개선] 신규
-        ("invoices", "거래명세서 입력", "invoices", {}),            # [개선] 신규
+    ]),
+    ("구매관리", "구매관리", [                                     # [연동] 거래명세서 앱 (dhmes-receipt)
+        ("rc_mold", "금형부품 명세서 (자동 입고)", "rc_mold", {}),
+        ("rc_general", "일반 거래명세서", "rc_general", {}),
+        ("invoices", "거래명세서 직접 입력", "invoices", {}),
     ]),
     ("출하관리", "출하관리", [
         ("ship_prep", "출하 준비", "ship", {"tab": "prep"}),

@@ -16,8 +16,19 @@ App.pages.parts = function (root, args) {
     '<button class="btn danger" data-a="del">삭제</button>' +
     '<button class="btn" data-a="xlsx">엑셀로 저장</button>' +
     '</div>' +
+    '<div data-rc></div>' +
     '<div class="split"><div class="left"></div><div class="right panel"><div class="panel-b muted">부품을 선택하면 입출고 내역이 보입니다.</div></div></div></div>';
   var right = root.querySelector('.right');
+  // [연동] 거래명세서 앱 — 무경 · 다온 명세서는 자동 입고, 부품을 못 찾은 품목이 있으면 알림
+  App.get('/api/rc/list?kind=' + encodeURIComponent('금형부품') + '&d1=' + App.addDays(-90)).then(function (rows) {
+    var p = rows.filter(function (r) { return r.pending; });
+    var n = p.reduce(function (a, r) { return a + r.pending; }, 0);
+    if (n) {
+      var el = root.querySelector('[data-rc]');
+      el.innerHTML = '<div class="notice warn" style="margin-bottom:6px;cursor:pointer">거래명세서에서 부품을 못 찾은 품목 <b>' + n + '건</b> (' + p.length + '장) — 눌러서 구매관리 &gt; 금형부품 명세서에서 부품을 고르면 입고됩니다.</div>';
+      el.onclick = function () { App.go('rc_mold'); };
+    }
+  }).catch(function () { /* 구매관리 권한이 없으면 표시 안 함 */ });
   var stOrder = { '품절': 0, '미달': 1, '주의': 2, '정상': 3 };
   var cols = [
     { k: 'state', l: '상태', w: 50, fmt: function (v, r) { return App.stateTag(r.state); }, val: function (r) { return stOrder[r.state]; }, xval: function (r) { return r.state; } },
