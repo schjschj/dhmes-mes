@@ -23,7 +23,10 @@
     App.get('/api/rc/cfg').then(function (c) {
       var body = App.h('<div><div class="form">' +
         '<label class="f full"><span>금형부품 업체 (상호에 이 글자가 들어가면 금형부품 명세서 → 자동 입고, 한 줄에 하나)</span><textarea class="input" rows="3" data-sup>' + esc(c.mold_suppliers.join('\n')) + '</textarea></label>' +
-        '<label class="f full"><span>연동 키 (명세서 앱 .env 의 MES_API_KEY)</span><input class="input" readonly data-key value="' + esc(c.api_key || '(아직 없음 — [새 키 발급])') + '"></label></div>' +
+        '<label class="f full"><span>연동 키 (명세서 앱 .env 의 MES_API_KEY)</span><input class="input" readonly data-key value="' + esc(c.api_key || '(아직 없음 — [새 키 발급])') + '"></label>' +
+        '<label class="f full"><span>휴대폰 촬영 분석 — Gemini API 키 (넣으면 비전 AI 로 읽음, 비우면 이 PC 의 Windows OCR) · 지금: ' + esc(c.gemini_key_mask || '없음 (OCR)') + '</span>' +
+        '<input class="input" data-gkey placeholder="바꿀 때만 입력 (지우려면 - 입력)" autocomplete="off"></label>' +
+        '<label class="f"><span>Gemini 모델</span><input class="input" data-gmodel value="' + esc(c.gemini_model || 'gemini-2.5-flash') + '"></label></div>' +
         '<div class="notice" style="margin-top:8px;line-height:1.7">명세서 앱(dhmes-receipt) 의 <b>.env</b> 에 아래 두 줄을 넣고 앱을 다시 켜세요.<br>' +
         '<code>MES_API_BASE_URL=' + esc(location.origin) + '/api</code><br><code>MES_API_KEY=' + esc(c.api_key || '(발급한 키)') + '</code><br>' +
         '<span class="muted">새 키를 발급하면 예전 키로는 보낼 수 없습니다.</span></div></div>');
@@ -35,7 +38,10 @@
           });
         } },
         { label: '저장', cls: 'primary', onClick: function (d) {
-          App.api('PUT', '/api/rc/cfg', { mold_suppliers: body.querySelector('[data-sup]').value }).then(function () { d.close(); App.toast('저장했습니다.'); }).catch(function (e) { d.error(e.message); });
+          var b = { mold_suppliers: body.querySelector('[data-sup]').value, gemini_model: body.querySelector('[data-gmodel]').value.trim() };
+          var gk = body.querySelector('[data-gkey]').value.trim();
+          if (gk) b.gemini_key = gk === '-' ? '' : gk;
+          App.api('PUT', '/api/rc/cfg', b).then(function () { d.close(); App.toast('저장했습니다.'); }).catch(function (e) { d.error(e.message); });
         } }] });
     }).catch(App.err);
   }
@@ -47,7 +53,7 @@
       var urls = (here ? [here] : []).concat(m.urls.filter(function (u) { return u !== here; }));
       App.dialog({ title: '휴대폰으로 명세서 찍기', wide: true, body: '<div style="line-height:1.8">회사 Wi-Fi 에 연결한 휴대폰의 인터넷(크롬 · 삼성 인터넷 · 사파리) 주소창에 아래 주소를 넣으세요.' +
         urls.map(function (u) { return '<div style="font-size:22px;font-weight:700;margin:6px 0;user-select:all">' + esc(u) + '</div>'; }).join('') +
-        '<div class="notice" style="margin-top:8px">MES 계정으로 로그인 → [명세서 사진 찍기] → 읽은 글자 확인 · 고침 → [MES 에 등록].<br>' +
+        '<div class="notice" style="margin-top:8px">MES 계정으로 로그인 → 작업자 선택 → [카메라로 즉시 촬영] → 분석이 끝나면(검수 대기) 카드의 [수정]으로 확인 · 고침 → [MES에 등록].<br>' +
         '금형부품 업체 명세서는 금형부품 재고에 바로 입고되고, 나머지는 일반 거래명세서로 들어옵니다.<br>' +
         '휴대폰 홈 화면에 바로가기를 추가해 두면 편합니다. 열리지 않으면 이 PC 의 Windows 방화벽에서 MES 포트(' + esc(location.port || '80') + ')를 허용해야 합니다.</div></div>',
         buttons: [{ label: '닫기' }] });

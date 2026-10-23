@@ -35,9 +35,12 @@ def cfg():
 
 def cfg_view(is_admin):
     c = cfg()
-    out = {"mold_suppliers": c["mold_suppliers"], "key_set": bool(c.get("api_key"))}
+    out = {"mold_suppliers": c["mold_suppliers"], "key_set": bool(c.get("api_key")), "gemini_set": bool(c.get("gemini_key")),
+           "gemini_model": c.get("gemini_model") or "gemini-2.5-flash"}
     if is_admin:
         out["api_key"] = c.get("api_key") or ""
+        k = c.get("gemini_key") or ""
+        out["gemini_key_mask"] = (k[:4] + "…" + k[-4:]) if len(k) > 10 else ("설정됨" if k else "")
     return out
 
 
@@ -48,6 +51,10 @@ def save_cfg(b):
         if isinstance(sup, str):
             sup = re.split(r"[,\n]", sup)
         c["mold_suppliers"] = [s.strip() for s in sup if s and s.strip()]
+    if "gemini_key" in b:          # 모바일 촬영 분석용 (비우면 Windows OCR)
+        c["gemini_key"] = (b.get("gemini_key") or "").strip()
+    if b.get("gemini_model"):
+        c["gemini_model"] = b["gemini_model"].strip()
     if b.get("new_key"):
         c["api_key"] = "mes_" + secrets.token_urlsafe(24)
     set_json("receipt_cfg", c)
@@ -132,7 +139,7 @@ def _num(v):
 
 def inbound(data, ip, file_path=None, by=None, src="명세서 앱"):
     """명세서 앱 → MES. 같은 명세서(앱 접수번호 · 사진)를 다시 보내면 처음 결과를 그대로 돌려줌.
-    MES 모바일 촬영(/m/receipt)도 같은 길로 들어옴 (file_path = 올려 둔 사진, by = 로그인한 사람)."""
+    MES 모바일 촬영(/m/receipt/, rcmobile.confirm)도 같은 길로 들어옴 (file_path = 보관한 사진, by = 작업자 (로그인한 사람))."""
     h = data.get("header") or {}
     sup = h.get("supplier") or {}
     summ = h.get("summary") or {}
@@ -209,22 +216,6 @@ def inbound(data, ip, file_path=None, by=None, src="명세서 앱"):
     if kind == "금형부품":
         msg += " — 자동 입고 %d건%s" % (n_in, (", 확인 필요 %d건 (MES 구매관리에서 처리)" % n_wait) if n_wait else "")
     return {"success": True, "inbound_id": "MES-%d" % inv, "status": status, "kind": kind, "auto_in": n_in, "pending": n_wait, "message": msg}
-
-
-def mobile(b, user, ip):
-    """MES 모바일 촬영: 사진 → /api/invoice/read (OCR) → 휴대폰에서 확인 · 고침 → 여기로.
-    금형부품 업체면 자동 입고, 아니면 일반 거래명세서 (명세서 앱과 같은 규칙)."""
-    token = os.path.basename(b.get("token") or "")
-    path = os.path.join(IMG_DIR, token) if token and os.path.isfile(os.path.join(IMG_DIR, token)) else None
-    items = [x for x in (b.get("items") or []) if (x.get("item") or "").strip()]
-    data = {"header": {"invoice_date": b.get("date") or db.now()[:10], "invoice_number": b.get("doc_no") or "",
-                       "supplier": {"company_name": (b.get("supplier") or "").strip()},
-                       "summary": {"total_amount": _int(b.get("total"))}},
-            "items": [{"item_no": i + 1, "item_name": x["item"].strip(), "specification": (x.get("spec") or "").strip(),
-                       "quantity": x.get("qty"), "unit": x.get("unit") or "", "unit_price": x.get("unit_price"),
-                       "amount": x.get("amount"), "remarks": x.get("note") or ""} for i, x in enumerate(items)],
-            "receipt_id": ("mobile_" + token) if token else "", "worker_name": user}
-    return inbound(data, ip, file_path=path, by=user, src="모바일 촬영")
 
 
 # ──────────────────────────────────────────── 화면

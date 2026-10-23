@@ -11,7 +11,7 @@ import urllib.parse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, FileResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
@@ -37,6 +37,7 @@ import moldx
 import rmx
 import invoice
 import receipts
+import rcmobile
 from common import client_ip, need_login, me_of, guard, admin_only, bad, ok, body, level, get_json
 from meta import meta_for, VERSION, TABLES
 from tables import TABLE_GROUP
@@ -1442,20 +1443,142 @@ async def api_rc_mobile_url(req: Request):
     lan = [i for i in ips if i.startswith(("192.168.", "10."))]       # 172.x 는 대개 WSL · Hyper-V 가상망
     ips = lan or ips[:1]
     port = req.url.port or 80
-    return JSONResponse({"urls": ["http://%s:%s/m/receipt" % (i, port) for i in ips], "path": "/m/receipt"})
+    return JSONResponse({"urls": ["http://%s:%s/m/receipt/" % (i, port) for i in ips], "path": "/m/receipt/"})
 
 
-@app.post("/api/rc/mobile")
-async def api_rc_mobile(req: Request):
+# ──────── 모바일 명세서 촬영 (dhmes-receipt 앱과 같은 화면 · API: web/m_receipt/, server/rcmobile.py)
+def _detail(msg, code=400):
+    return JSONResponse({"detail": msg}, status_code=code)
+
+
+@app.get("/api/v1/workers")
+async def api_v1_workers(req: Request):
+    me, err = guard(req, "구매관리", 1)
+    if err:
+        return err
+    return JSONResponse(rcmobile.workers(me["name"]))
+
+
+@app.post("/api/v1/workers")
+async def api_v1_worker_add(req: Request):
     me, err = guard(req, "구매관리", 2)
     if err:
         return err
-    return run(receipts.mobile, await body(req), me["name"], client_ip(req))
+    if "application/json" in (req.headers.get("content-type") or ""):
+        name = (await body(req)).get("name")
+    else:
+        name = (await req.form()).get("name")
+    try:
+        return JSONResponse(rcmobile.add_worker(name))
+    except ValueError as e:
+        return _detail(str(e))
+
+
+@app.delete("/api/v1/workers/{wid}")
+async def api_v1_worker_del(wid: str, req: Request):
+    me, err = guard(req, "구매관리", 2)
+    if err:
+        return err
+    rcmobile.delete_worker(wid)
+    return JSONResponse({"success": True, "message": "작업자가 삭제되었습니다."})
+
+
+@app.post("/api/v1/receipts/upload")
+async def api_v1_upload(req: Request):
+    me, err = guard(req, "구매관리", 2)
+    if err:
+        return err
+    form = await req.form()
+    f = form.get("file")
+    if f is None or not hasattr(f, "read"):
+        return _detail("사진 파일이 없습니다.")
+    try:
+        return JSONResponse(rcmobile.upload(await f.read(), f.filename, f.content_type or "", form.get("worker_id") or "",
+                                            form.get("worker_name") or me["name"], me["name"]))
+    except ValueError as e:
+        return _detail(str(e))
+    except Exception as e:
+        return _detail("업로드 처리 오류: %s" % e, 500)
+
+
+@app.get("/api/v1/receipts")
+async def api_v1_receipts(req: Request):
+    me, err = guard(req, "구매관리", 1)
+    if err:
+        return err
+    return JSONResponse(rcmobile.jobs(int(q(req, "limit", 100))))
+
+
+@app.get("/api/v1/receipts/images/{image_id}")
+async def api_v1_image(image_id: str, req: Request):
+    me, err = guard(req, "구매관리", 1)
+    if err:
+        return err
+    p = rcmobile.image_path(image_id)
+    return FileResponse(p, media_type="image/jpeg") if p else _detail("이미지를 찾을 수 없습니다.", 404)
+
+
+@app.get("/api/v1/receipts/thumbnails/{image_id}")
+async def api_v1_thumb(image_id: str, req: Request):
+    me, err = guard(req, "구매관리", 1)
+    if err:
+        return err
+    p = rcmobile.image_path(image_id, thumb=True)
+    return FileResponse(p, media_type="image/jpeg") if p else _detail("이미지를 찾을 수 없습니다.", 404)
+
+
+@app.get("/api/v1/receipts/{rid}")
+async def api_v1_receipt(rid: str, req: Request):
+    me, err = guard(req, "구매관리", 1)
+    if err:
+        return err
+    j = rcmobile.job(rid)
+    return JSONResponse(j) if j else _detail("해당 명세서를 찾을 수 없습니다.", 404)
+
+
+@app.put("/api/v1/receipts/{rid}")
+async def api_v1_receipt_put(rid: str, req: Request):
+    me, err = guard(req, "구매관리", 2)
+    if err:
+        return err
+    try:
+        return JSONResponse(rcmobile.update(rid, await body(req)))
+    except LookupError as e:
+        return _detail(str(e), 404)
+
+
+@app.delete("/api/v1/receipts/{rid}")
+async def api_v1_receipt_del(rid: str, req: Request):
+    me, err = guard(req, "구매관리", 2)
+    if err:
+        return err
+    return JSONResponse(rcmobile.delete(rid))
+
+
+@app.post("/api/v1/receipts/{rid}/confirm")
+async def api_v1_confirm(rid: str, req: Request):
+    me, err = guard(req, "구매관리", 2)
+    if err:
+        return err
+    try:
+        payload = await req.json() if int(req.headers.get("content-length") or 0) > 0 else None
+    except ValueError:
+        payload = None
+    code, r = rcmobile.confirm(rid, payload, (q(req, "force") or "").lower() in ("1", "true"), me["name"], client_ip(req))
+    return JSONResponse(r, status_code=code)
 
 
 @app.get("/m/receipt")
-async def m_receipt_page():
-    return FileResponse(os.path.join(WEB_DIR, "receipt_m.html"), headers={"Cache-Control": "no-cache"})
+async def m_receipt_redirect():
+    return RedirectResponse("/m/receipt/")
+
+
+@app.get("/m/receipt/{name:path}")
+async def m_receipt_files(name: str):
+    name = name or "index.html"
+    if name not in ("index.html", "style.css", "app.js"):
+        name = "index.html"
+    return FileResponse(os.path.join(WEB_DIR, "m_receipt", name), headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/rc/{iid}")

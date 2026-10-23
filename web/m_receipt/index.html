@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>대흥공업 MES 거래명세서 자동입력</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- 상단 헤더 -->
+    <header class="app-header">
+      <div class="header-logo">
+        <span class="logo-badge">MES</span>
+        <h1>거래명세서 자동입력</h1>
+      </div>
+      <div id="worker-badge" class="worker-badge">
+        <span class="dot"></span>
+        <span id="worker-name-display">작업자</span>
+        <button id="btn-change-worker" class="btn-text">변경</button>
+      </div>
+    </header>
+
+    <!-- [MES] 로그인 모달 (MES 계정 · 구매관리 권한, 한 번 로그인하면 30일 유지) -->
+    <div id="login-modal" class="modal hidden" style="z-index: 2000;">
+      <div class="modal-content select-worker-box">
+        <div class="modal-header">
+          <h3>MES 로그인</h3>
+        </div>
+        <p class="subtitle" style="margin-bottom: 10px;">대흥공업 MES 계정으로 로그인하세요. (구매관리 권한 필요)</p>
+        <p id="login-error" style="display:none; color:#dc2626; font-size:13px; font-weight:600; margin-bottom:8px;"></p>
+        <input type="text" id="login-id" class="form-control" placeholder="아이디" autocomplete="username" autocapitalize="off" style="margin-bottom: 8px;">
+        <input type="password" id="login-pw" class="form-control" placeholder="비밀번호" autocomplete="current-password" style="margin-bottom: 12px;">
+        <button id="btn-login" class="btn btn-primary btn-block">로그인</button>
+      </div>
+    </div>
+
+    <!-- 작업자 선택 & 관리 모달 -->
+    <div id="worker-modal" class="modal hidden">
+      <div class="modal-content select-worker-box">
+        <div class="modal-header">
+          <h3>작업자 선택</h3>
+          <button id="btn-close-worker-modal" class="btn-close">&times;</button>
+        </div>
+        <p class="subtitle" style="margin-bottom: 10px;">작업자를 선택하거나 새 작업자를 추가하세요.</p>
+        
+        <div id="worker-btn-list" class="worker-grid">
+          <!-- JS로 동적 생성 -->
+        </div>
+
+        <!-- 새 작업자 추가 폼 -->
+        <div class="add-worker-section">
+          <input type="text" id="new-worker-name" class="form-control" placeholder="새 작업자 이름 입력 (예: 박과장)">
+          <button id="btn-add-worker" class="btn btn-primary btn-sm">+ 추가</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 메인 대시보드 -->
+    <main class="app-main">
+      <!-- 상단 원터치 고속 촬영 영역 -->
+      <section class="card capture-card">
+        <div class="capture-intro">
+          <h3>📷 거래명세서 즉시 촬영</h3>
+          <p>촬영 즉시 <strong>초고속 업로드 & 압축</strong>되며, AI가 백그라운드에서 분석 및 정리합니다.</p>
+        </div>
+
+        <div class="camera-actions">
+          <label class="btn btn-capture btn-block">
+            <span class="icon">📸</span> 카메라로 즉시 촬영
+            <input type="file" id="camera-input" accept="image/*" capture="environment" class="hidden-input">
+          </label>
+          <label class="btn btn-secondary btn-block">
+            <span class="icon">🖼️</span> 앨범 / 갤러리에서 선택
+            <input type="file" id="file-input" accept="image/*" class="hidden-input">
+          </label>
+        </div>
+
+        <!-- 실시간 업로드 토스트 알림 바 -->
+        <div id="upload-toast" class="upload-toast hidden">
+          <div class="toast-spinner"></div>
+          <span id="toast-msg">업로드 중...</span>
+        </div>
+      </section>
+
+      <!-- [요구사항 1] 상단 필터 탭 (전체 / 검수대기 / MES 등록완료) -->
+      <div class="filter-tabs-wrapper">
+        <button class="filter-tab active" data-filter="all">
+          전체보기 <span class="tab-count" id="tab-count-all">0</span>
+        </button>
+        <button class="filter-tab" data-filter="pending">
+          ⏳ 검수 대기 <span class="tab-count warning" id="tab-count-pending">0</span>
+        </button>
+        <button class="filter-tab" data-filter="registered">
+          🟢 MES 등록 완료 <span class="tab-count success" id="tab-count-registered">0</span>
+        </button>
+      </div>
+
+      <!-- 명세서 피드 목록 헤더 -->
+      <section class="list-section">
+        <div class="list-header">
+          <div class="list-title">
+            <h2 id="current-tab-title">전체 명세서 목록</h2>
+            <span id="pending-counter" class="badge-pending hidden">🔄 분석 중 <b id="pending-count">0</b>건</span>
+          </div>
+          <button id="btn-refresh" class="btn btn-sm btn-outline">새로고침</button>
+        </div>
+
+        <!-- 명세서 카드 목록 컨테이너 -->
+        <div id="receipt-cards-container" class="receipt-cards-container">
+          <div class="empty-state">
+            <p>등록된 명세서가 없습니다.<br>위의 <strong>카메라로 즉시 촬영</strong> 버튼을 눌러보세요.</p>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- [요구사항 2] 공장 표준 MES 입고 전표 보기/인쇄 모달 -->
+    <div id="voucher-modal" class="modal hidden">
+      <div class="modal-content voucher-modal-content">
+        <div class="modal-header no-print">
+          <h3>공장 표준 MES 입고 전표</h3>
+          <div style="display:flex; gap:8px;">
+            <button id="btn-print-voucher" class="btn btn-primary btn-sm">🖨️ 전표 인쇄 / PDF 저장</button>
+            <button id="btn-close-voucher" class="btn-close">&times;</button>
+          </div>
+        </div>
+
+        <!-- 인쇄 영역 시작 -->
+        <div id="printable-voucher" class="printable-voucher-area">
+          <div class="voucher-title-row">
+            <div class="voucher-company-stamp">
+              <div class="company-logo-text">대흥공업(주)</div>
+              <div class="voucher-sub-title">DAEHEUNG INDUSTRIAL CO., LTD.</div>
+            </div>
+            <div class="voucher-main-heading">
+              <h2>자재 · 소모품 입고 전표</h2>
+              <span class="inbound-no-tag" id="v-inbound-no">MES-INB-20261022-0001</span>
+            </div>
+            <!-- 결재란 -->
+            <div class="approval-box">
+              <table class="approval-table">
+                <tr><th rowspan="2">결<br>재</th><th>담당</th><th>검수</th><th>승인</th></tr>
+                <tr><td id="v-appr-worker">심재우</td><td></td><td></td></tr>
+              </table>
+            </div>
+          </div>
+
+          <!-- 기본 거래 정보 테이블 -->
+          <table class="voucher-meta-table">
+            <tr>
+              <th style="width: 15%;">입고일자</th>
+              <td style="width: 35%;" id="v-invoice-date">-</td>
+              <th style="width: 15%;">인수자</th>
+              <td style="width: 35%;" id="v-receiver-name">-</td>
+            </tr>
+            <tr>
+              <th>공급업체</th>
+              <td id="v-supplier-name">-</td>
+              <th>사업자번호</th>
+              <td id="v-supplier-bizno">-</td>
+            </tr>
+            <tr>
+              <th>공급처 대표</th>
+              <td id="v-supplier-rep">-</td>
+              <th>공급처 연락처</th>
+              <td id="v-supplier-tel">-</td>
+            </tr>
+          </table>
+
+          <!-- 품목 리스트 테이블 -->
+          <table class="voucher-items-table">
+            <thead>
+              <tr>
+                <th style="width: 35px;">No</th>
+                <th>품목명</th>
+                <th>규격 / 사양</th>
+                <th style="width: 50px;">수량</th>
+                <th style="width: 75px;">단가</th>
+                <th style="width: 90px;">공급가액</th>
+                <th style="width: 75px;">세액(10%)</th>
+              </tr>
+            </thead>
+            <tbody id="v-items-tbody"></tbody>
+            <tfoot>
+              <tr>
+                <th colspan="3">합 계</th>
+                <th id="v-total-qty" style="text-align:center;">0</th>
+                <th>-</th>
+                <th id="v-supply-sum" style="text-align:right;">0원</th>
+                <th id="v-vat-sum" style="text-align:right;">0원</th>
+              </tr>
+              <tr class="voucher-grand-total-row">
+                <th colspan="2">총 입고 합계금액</th>
+                <td colspan="5">
+                  <span id="v-total-korean" style="font-weight:700; color:#1e3a8a; margin-right:12px;">일금 원정</span>
+                  <strong id="v-total-number" style="font-size:16px; color:#0f172a;">₩ 0</strong>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+
+          <!-- 하단 증빙 사진 첨부 영역 -->
+          <div class="voucher-photo-section">
+            <h4>[증빙 자료] 촬영 원본 거래명세서</h4>
+            <div class="voucher-photo-wrap">
+              <img id="v-receipt-image" src="" alt="거래명세서 증빙 원본">
+            </div>
+          </div>
+        </div>
+        <!-- 인쇄 영역 끝 -->
+      </div>
+    </div>
+
+    <!-- [요구사항 4] 중복 등록 경고 팝업 모달 -->
+    <div id="duplicate-modal" class="modal hidden">
+      <div class="modal-content duplicate-modal-box">
+        <div class="dup-icon">⚠️</div>
+        <h3>중복 등록 감지</h3>
+        <p class="dup-desc">동일한 거래일자와 금액으로 이미 MES에 등록된 전표가 존재합니다.</p>
+        
+        <div class="dup-info-card">
+          <div class="dup-line"><span>기존 전표:</span> <strong id="dup-inbound-no">-</strong></div>
+          <div class="dup-line"><span>공급업체:</span> <strong id="dup-supplier">-</strong></div>
+          <div class="dup-line"><span>거래일자:</span> <strong id="dup-date">-</strong></div>
+          <div class="dup-line"><span>합계금액:</span> <strong id="dup-amount" style="color:var(--primary);">-</strong></div>
+        </div>
+
+        <p style="font-size: 13px; color: #dc2626; font-weight: 600; margin-bottom: 16px;">
+          이중 입고 처리를 방지하기 위해 등록이 차단되었습니다.
+        </p>
+
+        <div style="display: flex; gap: 8px;">
+          <button id="btn-cancel-dup" class="btn btn-secondary btn-block">취소 (등록 중단)</button>
+          <button id="btn-force-dup" class="btn btn-danger-outline btn-sm" style="white-space:nowrap;">강제 등록</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 원본 사진 확대 모달 -->
+    <div id="image-modal" class="modal hidden">
+      <div class="modal-content image-modal-content">
+        <div class="modal-header">
+          <h3 id="image-modal-title">명세서 원본 사진</h3>
+          <button id="btn-close-image" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body text-center">
+          <img id="modal-full-image" src="" alt="거래명세서 원본">
+        </div>
+      </div>
+    </div>
+
+    <!-- 품목 수정 모달 -->
+    <div id="edit-modal" class="modal hidden">
+      <div class="modal-content edit-modal-content">
+        <div class="modal-header">
+          <h3>명세서 상세 수정</h3>
+          <button id="btn-close-edit" class="btn-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" id="edit-receipt-id">
+          
+          <div class="grid-2">
+            <div class="form-group">
+              <label>거래일자</label>
+              <input type="date" id="edit-date" class="form-control">
+            </div>
+            <div class="form-group">
+              <label>공급자 상호</label>
+              <input type="text" id="edit-supplier" class="form-control">
+            </div>
+          </div>
+          
+          <div class="grid-2">
+            <div class="form-group">
+              <label>사업자번호</label>
+              <input type="text" id="edit-bizno" class="form-control">
+            </div>
+            <div class="form-group">
+              <label>인수자</label>
+              <input type="text" id="edit-receiver" class="form-control">
+            </div>
+          </div>
+
+          <div class="items-header">
+            <h4>품목 리스트</h4>
+            <button id="btn-add-edit-item" class="btn btn-sm btn-outline">+ 품목 추가</button>
+          </div>
+          <div id="edit-items-list" class="edit-items-list">
+            <!-- 동적 렌더링 -->
+          </div>
+
+          <div class="edit-summary-box">
+            <div class="summary-line"><span>공급가액:</span> <strong id="edit-sum-supply">0원</strong></div>
+            <div class="summary-line"><span>세액(10%):</span> <strong id="edit-sum-vat">0원</strong></div>
+            <div class="summary-line total"><span>총합계:</span> <strong id="edit-sum-total">0원</strong></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-save-edit" class="btn btn-primary btn-block">수정 내용 저장</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

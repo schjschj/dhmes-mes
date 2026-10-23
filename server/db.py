@@ -194,6 +194,12 @@ FIXED_SCHEMA = [
         id INTEGER PRIMARY KEY AUTOINCREMENT, invoice_id INTEGER, seq INTEGER, target TEXT, item TEXT, spec TEXT,
         material TEXT, qty REAL, unit TEXT, unit_price REAL, amount REAL, part_id INTEGER, lot_no TEXT, mat_code TEXT,
         weight REAL, ref_id INTEGER, note TEXT)""",
+    # [구매관리] 모바일 명세서 촬영 (dhmes-receipt 앱과 같은 구조): 촬영 → 분석 → 검수 → MES 등록
+    """CREATE TABLE IF NOT EXISTS rc_jobs(
+        id TEXT PRIMARY KEY, worker_id TEXT, worker_name TEXT, image_id TEXT, original_size_kb REAL, compressed_size_kb REAL,
+        status TEXT, created_at TEXT, completed_at TEXT, data_json TEXT, mes_inbound_no TEXT, error_message TEXT,
+        engine TEXT, created_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS rc_workers(id TEXT PRIMARY KEY, name TEXT NOT NULL, created_at TEXT)""",
 ]
 
 # 이미 만든 테이블에 나중에 생긴 컬럼 (ALTER 로 보충)
