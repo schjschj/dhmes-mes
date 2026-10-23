@@ -32,7 +32,7 @@
       '.mb-eq.drop,.mb-col.drop{outline:2px dashed #2f6fd0;outline-offset:-2px}' +
       '.mb-eq .h{display:flex;justify-content:space-between;font-weight:700;margin-bottom:4px}.mb-eq .h span{font-weight:400;color:var(--muted);font-size:11.5px}' +
       '.mb-eq.miss{border-color:#e0a000}.mb-eq .wo{font-size:11px;color:var(--muted);margin-top:4px}' +
-      '.mb-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}' +
+      '.mb-cols{display:grid;grid-template-columns:3fr 1fr;gap:8px}' +
       '.mb-col{border:1px solid var(--line);border-radius:8px;background:var(--panel);padding:6px 8px;min-height:80px}' +
       '.mb-col .h{font-weight:700;margin-bottom:4px;display:flex;justify-content:space-between}' +
       '.chip{display:inline-flex;align-items:center;gap:3px;border:1px solid var(--line);border-radius:12px;padding:1px 8px;margin:2px;font-size:12px;cursor:grab;background:var(--bg,#fff);user-select:none}' +
@@ -228,7 +228,7 @@
     function moveDlg(nos, state, place) {
       var body = App.h('<div><div class="notice" style="margin-bottom:8px">' + esc(nos.join(', ')) + '</div><div class="form">' +
         '<label class="f"><span>이동 *</span><select class="input" data-k="state">' + data.states.map(function (s) { return '<option' + (s === state ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></label>' +
-        '<label class="f"><span>위치 (설비번호 · 보관 랙 · 외주업체)</span><input class="input" data-k="place" value="' + esc(place || '') + '" list="mbPlaces"></label>' +
+        '<label class="f"><span>위치 (설비번호 · 보관 랙)</span><input class="input" data-k="place" value="' + esc(place || '') + '" list="mbPlaces"></label>' +
         '<label class="f"><span>작업자</span><input class="input" data-k="worker" list="' + App.datalist('workers') + '" value="' + esc(App.user || '') + '"></label>' +
         '<label class="f full"><span>비고</span><input class="input" data-k="note"></label></div>' +
         '<datalist id="mbPlaces">' + data.equips.map(function (e) { return '<option value="' + esc(e.no) + '">' + esc(e.no) + '호기</option>'; }).join('') + '</datalist></div>');
@@ -323,7 +323,7 @@
         var mx = Math.max.apply(null, c.months.map(function (m) { return m.repair + m.parts; }).concat([1]));
         top.innerHTML = '<div class="cols2" style="margin-bottom:8px;align-items:stretch"><div class="panel"><div class="panel-b"><div class="wo-nums"><span><b>' + won(c.total.repair_cost + c.total.parts_cost) + '</b>유지비 합계 (원)</span>' +
           '<span><b>' + won(c.total.repair_cost) + '</b>수리비</span><span><b>' + won(c.total.parts_cost) + '</b>부품 출고 금액</span><span><b>' + fmt(c.total.repairs) + '</b>수리 건수</span></div>' +
-          '<div class="muted" style="font-size:12px;margin-top:6px">수리비 = 수리이력의 수리비용 · 부품 출고 금액 = 부품 출고 수량 × 부품 단가</div></div></div>' +
+          '<div class="muted" style="font-size:12px;margin-top:6px">수리비 = 수리이력의 수리비용 · 부품 출고 금액 = 부품 출고 수량 × 입고 평균 단가 (입고 단가 없으면 부품 등록 단가)</div></div></div>' +
           '<div class="panel"><div class="panel-b"><div class="vbars">' + c.months.map(function (m) {
             return '<div class="b" title="' + esc(m.ym) + ' 수리비 ' + won(m.repair) + ' / 부품 ' + won(m.parts) + '"><span class="p" style="height:' + (m.parts / mx * 100) + '%"></span><span style="height:' + (m.repair / mx * 100) + '%"></span>' + esc(m.ym.slice(5)) + '월</div>';
           }).join('') + '</div><div class="muted" style="font-size:11px">진한 색 수리비 · 연한 색 부품</div></div></div></div>';

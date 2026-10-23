@@ -6,7 +6,7 @@ k(키)·l(라벨)·t(타입)·req·hide·ref·opts·grp·w·default 를 사용�
 타입: text, num, int, date, time, select, ref, yesno, memo
 """
 
-VERSION = "2.2.0"
+VERSION = "2.2.1"
 COMPANY = "대흥공업"
 
 # ──────────────────────────────────────────────────── 기준정보 테이블

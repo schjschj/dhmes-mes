@@ -15,7 +15,7 @@ import db
 import workorders
 
 FILE_DIR = os.path.join(db.DATA_DIR, "mold_files")
-STATES = ["설비 장착", "보관", "사내 수리", "외주 수리", "폐기"]
+STATES = ["설비 장착", "보관", "사내 수리"]
 STATUS_OF = {"설비 장착": "사용중", "보관": "보관", "사내 수리": "수리중", "외주 수리": "수리중", "폐기": "폐기"}
 
 
@@ -63,6 +63,10 @@ def board():
             st = m.get("status") or ""
             state = "사내 수리" if st == "수리중" else "폐기" if st == "폐기" else "보관"
             place, since = m.get("location") or "", None
+        if state == "폐기":            # 현황판은 보관 · 사내 수리만 (예전 외주 수리 기록은 수리로)
+            continue
+        if state == "외주 수리":
+            state = "사내 수리"
         f = nfiles.get(m["mold_no"]) or {}
         molds.append({"mold_no": m["mold_no"], "part_no": m["part_no"], "part_name": m["part_name"], "state": state,
                       "place": place or "", "since": since, "codes": used.get(m["mold_no"], []),
@@ -182,6 +186,11 @@ def delete_file(fid, user, ip):
 
 
 # ──────────────────────────────────────────── 유지비
+# 부품 단가 = 단가가 들어온 입고(거래명세서 자동 입고 포함)의 수량 가중 평균. 입고 단가가 없으면 부품 등록 단가
+AVG_IN = """SELECT part_id, SUM(qty*price)*1.0/SUM(qty) avg FROM parts_tx
+            WHERE kind='입고' AND price>0 AND qty>0 GROUP BY part_id"""
+
+
 def cost(d1, d2):
     """금형별 수리 건수 · 수리비 · 부품 출고 금액 · 생산량 · 1,000 EA 당 유지비."""
     import prodcalc
@@ -193,9 +202,9 @@ def cost(d1, d2):
         x = a(r["mold_no"])
         x["repairs"], x["repair_cost"] = r["n"], r["c"]
     for r in db.rows("""SELECT COALESCE(t.mold_no, p.mold_no) mold_no, SUM(t.qty) n,
-                               SUM(t.qty * COALESCE(p.price, 0)) c
-                        FROM parts_tx t JOIN parts p ON p.id=t.part_id
-                        WHERE t.kind='출고' AND t.date BETWEEN ? AND ? GROUP BY 1""", (d1, d2)):
+                               SUM(t.qty * COALESCE(a.avg, p.price, 0)) c
+                        FROM parts_tx t JOIN parts p ON p.id=t.part_id LEFT JOIN (%s) a ON a.part_id=t.part_id
+                        WHERE t.kind='출고' AND t.date BETWEEN ? AND ? GROUP BY 1""" % AVG_IN, (d1, d2)):
         if not r["mold_no"]:
             continue
         x = a(r["mold_no"])
@@ -224,8 +233,9 @@ def cost(d1, d2):
         e = min(end, nxt - datetime.timedelta(days=1)).isoformat()
         s = max(d1, d.isoformat())
         rc = db.one("SELECT COALESCE(SUM(cost),0) c FROM mold_repair WHERE date BETWEEN ? AND ?", (s, e))["c"]
-        pc = db.one("""SELECT COALESCE(SUM(t.qty*COALESCE(p.price,0)),0) c FROM parts_tx t JOIN parts p ON p.id=t.part_id
-                       WHERE t.kind='출고' AND t.date BETWEEN ? AND ?""", (s, e))["c"]
+        pc = db.one("""SELECT COALESCE(SUM(t.qty*COALESCE(a.avg,p.price,0)),0) c FROM parts_tx t JOIN parts p ON p.id=t.part_id
+                       LEFT JOIN (%s) a ON a.part_id=t.part_id
+                       WHERE t.kind='출고' AND t.date BETWEEN ? AND ?""" % AVG_IN, (s, e))["c"]
         months.append({"ym": d.strftime("%Y-%m"), "repair": rc, "parts": pc})
         d = nxt
     return {"rows": rows, "months": months,
