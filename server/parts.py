@@ -69,14 +69,23 @@ def move(part_id, v, user, ip):
     else:
         raise ValueError("구분이 올바르지 않습니다.")
     now = db.now()
+    price = None
+    if kind == "입고" and v.get("price") not in (None, ""):
+        try:
+            price = float(str(v["price"]).replace(",", ""))
+        except ValueError:
+            raise ValueError("단가를 숫자로 넣으세요.")
     db.run("UPDATE parts SET qty=?, updated=?, updated_by=? WHERE id=?", (new, now, user, part_id))
-    db.run("""INSERT INTO parts_tx(part_id,date,kind,qty,after_qty,mold_no,worker,note,created,created_by)
-              VALUES(?,?,?,?,?,?,?,?,?,?)""",
+    if price:       # [개선] 최근 구입 단가를 부품 단가로
+        db.run("UPDATE parts SET price=? WHERE id=?", (price, part_id))
+    cur_tx = db.run("""INSERT INTO parts_tx(part_id,date,kind,qty,after_qty,mold_no,worker,note,price,supplier,invoice_id,created,created_by)
+              VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)""",
            (part_id, v.get("date") or now[:10], kind, delta, new, v.get("mold_no") or None,
-            v.get("worker") or None, v.get("note") or None, now, user))
+            v.get("worker") or None, v.get("note") or None, price, (v.get("supplier") or "").strip() or None,
+            v.get("invoice_id") or None, now, user))
     db.log(user, ip, "part_tx", kind, part_id, "%s %s %+d → 재고 %d" % (p["name"], kind, delta if kind != "출고" else -delta, new))
     safety = p.get("safety_qty") or 0
-    return {"qty": new, "name": p["name"], "safety": safety, "warn": bool(safety and new < safety)}
+    return {"qty": new, "name": p["name"], "safety": safety, "warn": bool(safety and new < safety), "tx_id": cur_tx.lastrowid}
 
 
 def tx_list(part_id=None, d1=None, d2=None, kind=None):

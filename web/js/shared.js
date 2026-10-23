@@ -47,6 +47,19 @@
   };
 
   // 부품 입고 / 출고 / 재고조정(실사)
+  // 작업자 고르기 <select> (생산실적 하루치 입력). 기준정보 > 작업자 (App.refList('workers') 를 먼저 불러 둠)
+  // team '생산팀' → 부서 '생산' 재직자 먼저, 나머지 재직자 뒤. 지금 값이 목록에 없어도 보여 줌.
+  App.staffSelect = function (team, v, at) {
+    var ws = (App.cache.ref_workers || []).filter(function (w) { return w.active === undefined || w.active === null || +w.active === 1; });
+    var dept = (team || '').replace(/팀$/, '');
+    var names = ws.filter(function (w) { return !dept || w.dept === dept; }).map(function (w) { return w.name; })
+      .concat(ws.filter(function (w) { return dept && w.dept !== dept; }).map(function (w) { return w.name; }));
+    if (v && names.indexOf(v) < 0) names.unshift(v);
+    return '<select ' + (at || '') + '><option value=""></option>' + names.map(function (n) {
+      return '<option' + (n === v ? ' selected' : '') + '>' + App.esc(n) + '</option>';
+    }).join('') + '</select>';
+  };
+
   App.partMove = function (p, kind, onDone) {
     var label = kind === '조정' ? '재고조정 (실사)' : kind;
     var top = '<div class="move-info">' +
@@ -59,11 +72,15 @@
       { k: 'date', l: '일자', t: 'date', req: true },
       { k: 'mold_no', l: kind === '출고' ? '사용 금형' : '관련 금형', t: 'ref', ref: 'molds', skip: kind === '조정' },
       { k: 'worker', l: '작업자', t: 'ref', ref: 'workers' },
+      // [개선] 입고 단가 · 구입처 → 금형관리 > 유지비 · 부품단가 분석
+      { k: 'price', l: '구입 단가 (원)', t: 'int', skip: kind !== '입고' },
+      { k: 'supplier', l: '구입처', skip: kind !== '입고' },
       { k: 'note', l: '비고', t: 'memo' }
     ];
     var dlg = App.form({
       title: '부품 ' + label, cols: cols, top: top, okLabel: label + ' 저장',
-      values: { qty: kind === '조정' ? p.qty : '', date: App.today(), mold_no: kind === '출고' ? (p.mold_no || '') : '', worker: App.user },
+      values: { qty: kind === '조정' ? p.qty : '', date: App.today(), mold_no: kind === '출고' ? (p.mold_no || '') : '', worker: App.user,
+        price: kind === '입고' ? (p.price || '') : '', supplier: kind === '입고' ? (p.maker || '') : '' },
       onSave: function (v) {
         v.kind = kind;
         return App.api('POST', '/api/parts/' + p.id + '/move', v).then(function (r) {

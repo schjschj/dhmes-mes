@@ -139,4 +139,7 @@ def extra(today, level_of):
         x["defect_trend"] = list(reversed(trend))
         import quality
         x["quality"] = quality.dashboard_extra()
+    if level_of("원재료") >= 1:
+        import rmx
+        x["rm"] = rmx.alert_count()          # [개선] 원재료 부족 예상
     return x

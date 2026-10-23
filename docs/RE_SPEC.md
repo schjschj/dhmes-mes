@@ -140,5 +140,18 @@ qty(현재고)·safety_qty(안전재고)·unit(단위,select)·price(단가)·ma
 - 미검증(실제 자료 필요): 창고 DataBase.mdb 읽기(표·열 이름 자동 추정), 엑셀 가져오기(생산관리 xlsm·작업지시서·
   금형수리카드·parts_data.db·근태 json — 열 이름으로 추정), 공휴일 API(인증키), AI 도우미(anthropic 패키지 + API 키)
 - 원본과 다를 수 있는 계산: 생산계획 편성(단순화), 금형 모디파이(같은 금형 묶음) 미구현, 납기 결품 열 해석(음수=결품)
-- [ ] 남은 개선제안: OCR 작업일보 자동기입, 태블릿 현장입력, 금형 이동 현황판·사진/도면, 거래명세서 자동입력,
-  안전재고 발주 알림(원재료), 금형 부품 구매단가 분석
+- [x] 10단계 남은 개선제안 (v2.1.0, 2026-10-23) — 화면 web/js/improve.js, 태블릿 web/floor.html
+  - 작업지시 기반 실적: 하루치 입력 [작업지시서 불러오기] (`/api/production/from_wo`, scan.from_wo)
+  - 작업일보 스캔 OCR: server/ocr.py (Windows.Media.Ocr 한국어, PowerShell, 2배 확대 + 1.5배 두 번 읽어 합침),
+    scan.py (머리글 가로 위치로 칸 맞춤, 못 읽은 머리글은 양식 순서 HEAD 로 추정, 시간은 모양으로), 그림 data/scans 보관,
+    [작업일보 양식 인쇄] = OCR 친화 양식 (머리글 낱말 = scan.HEAD)
+  - 현장 태블릿 /floor: floor_runs (시작·비가동 사유별·종료 R/L) → 같은 날·설비·제번 생산실적 줄에 합산, 인터락 걸리면 '미반영'
+  - 금형 위치 현황판·사진/도면 (moldx.py, mold_moves, mold_files, data/mold_files), 작업지시서 대비 미장착 표시
+  - 금형 유지비(수리비+부품 출고 금액, 1,000EA 당) · 부품 구매단가(업체·품목·재질, 최저가 대비 절감 가능액)
+    parts_tx 에 price·supplier·invoice_id 추가, 부품 입고창에 단가·구입처
+  - 원재료 소요량·발주 알림 (rmx.py: 납기 계획 필요량 vs 창고/코일 LOT 재고, 안전재고 settings 'rm_safety'), 수율, 대시보드 원재료 부족
+  - 거래명세서 (invoice.py: xlsx·CSV·그림 OCR → 금형부품 입고 / 원재료 코일 LOT(검사중) / 기타, 삭제 시 입고 되돌림)
+  - 금형수리 후 인터락 (그날 제번 금형 수리 → '금형수리 후' 승인 필요), 품질 월간 리포트(report qmonth)
+  - 고침: App.staffSelect 가 없어 생산실적 하루치 입력 표가 안 그려지던 문제 (shared.js 에 추가)
+  - index.html 의 /js/*.js 에 서버가 ?v=VERSION 을 붙임 (캐시 문제)
+- 미검증(실제 자료 필요): 실제 작업일보 스캔(손글씨) 인식률, 실제 거래명세서 양식, 프레스 타수 카운터 연동(장기)

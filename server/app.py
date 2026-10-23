@@ -31,6 +31,11 @@ import rawmat
 import plan
 import quality
 import system
+import scan
+import floor
+import moldx
+import rmx
+import invoice
 from common import client_ip, need_login, me_of, guard, admin_only, bad, ok, body, level, get_json
 from meta import meta_for, VERSION, TABLES
 from tables import TABLE_GROUP
@@ -316,7 +321,7 @@ async def api_production_day_save(req: Request):
 
 @app.get("/api/report/{name}")
 async def api_report(name: str, req: Request):
-    grp = "품질관리" if name == "defect" else "생산관리"
+    grp = "품질관리" if name in ("defect", "qmonth") else "생산관리"
     me, err = guard(req, grp, 1)
     if err:
         return err
@@ -1051,6 +1056,315 @@ async def api_q_summary(req: Request):
     return JSONResponse(quality.dashboard_extra())
 
 
+# ════════════════════════════════════════════ [개선] 생산실적 쉽게 넣기 (작업지시 기반 · 작업일보 스캔)
+def _inline(path, name):
+    return FileResponse(path, filename=name, content_disposition_type="inline")
+
+
+@app.get("/api/production/from_wo")
+async def api_prod_from_wo(req: Request):
+    me, err = guard(req, "생산관리", 1)
+    if err:
+        return err
+    return run(scan.from_wo, q(req, "date") or "")
+
+
+@app.post("/api/scan")
+async def api_scan_add(req: Request):
+    me, err = guard(req, "생산관리", 2)
+    if err:
+        return err
+    return run(scan.save_scan, q(req, "name") or "", await req.body(), q(req, "date") or "", me["name"])
+
+
+@app.get("/api/scan/list")
+async def api_scan_list(req: Request):
+    me, err = guard(req, "생산관리", 1)
+    if err:
+        return err
+    return JSONResponse(scan.list_scans(q(req, "d1"), q(req, "d2")))
+
+
+@app.get("/api/scan/{sid}")
+async def api_scan_get(sid: int, req: Request):
+    me, err = guard(req, "생산관리", 1)
+    if err:
+        return err
+    r = scan.get_scan(sid)
+    if not r:
+        return bad("스캔을 찾을 수 없습니다.", 404)
+    r.pop("file_path", None)
+    return JSONResponse(r)
+
+
+@app.get("/api/scan/{sid}/image")
+async def api_scan_image(sid: int, req: Request):
+    me, err = guard(req, "생산관리", 1)
+    if err:
+        return err
+    r = db.one("SELECT file_path, file_name FROM prod_scans WHERE id=?", (sid,))
+    if not r or not r["file_path"] or not os.path.isfile(r["file_path"]):
+        return bad("그림 파일이 없습니다.", 404)
+    return _inline(r["file_path"], r["file_name"] or "scan")
+
+
+@app.post("/api/scan/{sid}/applied")
+async def api_scan_applied(sid: int, req: Request):
+    me, err = guard(req, "생산관리", 2)
+    if err:
+        return err
+    scan.mark_applied(sid, me["name"])
+    return ok()
+
+
+@app.delete("/api/scan/{sid}")
+async def api_scan_del(sid: int, req: Request):
+    me, err = guard(req, "생산관리", 3)
+    if err:
+        return err
+    scan.delete_scan(sid)
+    db.log(me["name"], client_ip(req), "prod_scans", "delete", sid, "작업일보 스캔 삭제")
+    return ok()
+
+
+# ════════════════════════════════════════════ [개선] 현장 태블릿 입력
+@app.get("/api/floor/state")
+async def api_floor_state(req: Request):
+    me, err = guard(req, "생산관리", 1)
+    if err:
+        return err
+    return JSONResponse(dict(floor.state(), me=me["name"], level=level(me, "생산관리")))
+
+
+@app.get("/api/floor/products")
+async def api_floor_products(req: Request):
+    me, err = guard(req, "생산관리", 1)
+    if err:
+        return err
+    return JSONResponse(floor.products(q(req, "q")))
+
+
+@app.get("/api/floor/runs")
+async def api_floor_runs(req: Request):
+    me, err = guard(req, "생산관리", 1)
+    if err:
+        return err
+    import datetime as _dt
+    t = _dt.date.today().isoformat()
+    return JSONResponse(floor.runs(q(req, "d1") or t, q(req, "d2") or t))
+
+
+@app.post("/api/floor/start")
+async def api_floor_start(req: Request):
+    me, err = guard(req, "생산관리", 2)
+    if err:
+        return err
+    return run(floor.start, await body(req), me["name"])
+
+
+@app.post("/api/floor/{rid}/{act}")
+async def api_floor_act(rid: int, act: str, req: Request):
+    me, err = guard(req, "생산관리", 2)
+    if err:
+        return err
+    b = await body(req)
+    if act == "down":
+        return run(floor.down, rid, b, me["name"])
+    if act == "up":
+        return run(floor.up, rid, me["name"])
+    if act == "finish":
+        return run(floor.finish, rid, b, me["name"], client_ip(req))
+    if act == "retry":
+        return run(floor.retry, rid, me["name"], client_ip(req))
+    return bad("알 수 없는 동작입니다.", 404)
+
+
+@app.delete("/api/floor/{rid}")
+async def api_floor_cancel(rid: int, req: Request):
+    me, err = guard(req, "생산관리", 2)
+    if err:
+        return err
+    return run(floor.cancel, rid, me["name"])
+
+
+@app.get("/floor")
+async def floor_page():
+    return FileResponse(os.path.join(WEB_DIR, "floor.html"))
+
+
+# ════════════════════════════════════════════ [개선] 금형 이동 · 사진/도면 · 유지비 · 부품단가
+@app.get("/api/moldx/board")
+async def api_moldx_board(req: Request):
+    me, err = guard(req, "금형관리", 1)
+    if err:
+        return err
+    return JSONResponse(moldx.board())
+
+
+@app.post("/api/moldx/move")
+async def api_moldx_move(req: Request):
+    me, err = guard(req, "금형관리", 2)
+    if err:
+        return err
+    return run(moldx.move, await body(req), me["name"], client_ip(req))
+
+
+@app.get("/api/moldx/moves")
+async def api_moldx_moves(req: Request):
+    me, err = guard(req, "금형관리", 1)
+    if err:
+        return err
+    return JSONResponse(moldx.moves(q(req, "mold_no"), q(req, "d1"), q(req, "d2")))
+
+
+@app.delete("/api/moldx/moves/{mid}")
+async def api_moldx_move_del(mid: int, req: Request):
+    me, err = guard(req, "금형관리", 3)
+    if err:
+        return err
+    moldx.delete_move(mid, me["name"], client_ip(req))
+    return ok()
+
+
+@app.get("/api/moldx/files")
+async def api_moldx_files(req: Request):
+    me, err = guard(req, "금형관리", 1)
+    if err:
+        return err
+    return JSONResponse(moldx.files(q(req, "mold_no")))
+
+
+@app.post("/api/moldx/files")
+async def api_moldx_file_add(req: Request):
+    me, err = guard(req, "금형관리", 2)
+    if err:
+        return err
+    m = {k: q(req, k) for k in ("mold_no", "kind", "title", "rev", "rev_date", "note")}
+    return run(moldx.add_file, m, q(req, "name") or "file", await req.body(), me["name"], client_ip(req))
+
+
+@app.get("/api/moldx/files/{fid}")
+async def api_moldx_file(fid: int, req: Request):
+    me, err = guard(req, "금형관리", 1)
+    if err:
+        return err
+    f = moldx.file_of(fid)
+    if not f:
+        return bad("파일이 없습니다.", 404)
+    return _inline(f["file_path"], f["file_name"]) if not q(req, "dl") else FileResponse(f["file_path"], filename=f["file_name"])
+
+
+@app.delete("/api/moldx/files/{fid}")
+async def api_moldx_file_del(fid: int, req: Request):
+    me, err = guard(req, "금형관리", 3)
+    if err:
+        return err
+    moldx.delete_file(fid, me["name"], client_ip(req))
+    return ok()
+
+
+@app.get("/api/moldx/cost")
+async def api_moldx_cost(req: Request):
+    me, err = guard(req, "금형관리", 1)
+    if err:
+        return err
+    return JSONResponse(moldx.cost(q(req, "d1") or "0000-00-00", q(req, "d2") or "9999-99-99"))
+
+
+@app.get("/api/moldx/prices")
+async def api_moldx_prices(req: Request):
+    me, err = guard(req, "금형관리", 1)
+    if err:
+        return err
+    return JSONResponse(moldx.prices(q(req, "d1") or "0000-00-00", q(req, "d2") or "9999-99-99"))
+
+
+@app.get("/api/moldx/price_hist")
+async def api_moldx_price_hist(req: Request):
+    me, err = guard(req, "금형관리", 1)
+    if err:
+        return err
+    return JSONResponse(moldx.price_hist(q(req, "item"), q(req, "spec")))
+
+
+# ════════════════════════════════════════════ [개선] 원재료 소요량 · 안전재고 · 거래명세서
+@app.get("/api/rmx/need")
+async def api_rmx_need(req: Request):
+    me, err = guard(req, "원재료", 1)
+    if err:
+        return err
+    return JSONResponse(rmx.need())
+
+
+@app.put("/api/rmx/safety")
+async def api_rmx_safety(req: Request):
+    me, err = guard(req, "원재료", 2)
+    if err:
+        return err
+    r = rmx.save_safety(await body(req), me["name"])
+    db.log(me["name"], client_ip(req), "settings", "update", "rm_safety", "원재료 안전재고 변경")
+    return JSONResponse(r)
+
+
+@app.get("/api/rmx/yield")
+async def api_rmx_yield(req: Request):
+    me, err = guard(req, "원재료", 1)
+    if err:
+        return err
+    return JSONResponse(rmx.yields(q(req, "d1") or "0000-00-00", q(req, "d2") or "9999-99-99"))
+
+
+@app.post("/api/invoice/read")
+async def api_invoice_read(req: Request):
+    me, err = guard(req, "원재료", 2)
+    if err:
+        return err
+    return run(invoice.read, q(req, "name") or "", await req.body(), me["name"])
+
+
+@app.post("/api/invoice/commit")
+async def api_invoice_commit(req: Request):
+    me, err = guard(req, "원재료", 2)
+    if err:
+        return err
+    return run(invoice.commit, await body(req), me["name"], client_ip(req), level(me, "금형관리") >= 2)
+
+
+@app.get("/api/invoice/list")
+async def api_invoice_list(req: Request):
+    me, err = guard(req, "원재료", 1)
+    if err:
+        return err
+    return JSONResponse(invoice.list_inv(q(req, "d1"), q(req, "d2")))
+
+
+@app.get("/api/invoice/{iid}/items")
+async def api_invoice_items(iid: int, req: Request):
+    me, err = guard(req, "원재료", 1)
+    if err:
+        return err
+    return JSONResponse(invoice.items_of(iid))
+
+
+@app.get("/api/invoice/{iid}/file")
+async def api_invoice_file(iid: int, req: Request):
+    me, err = guard(req, "원재료", 1)
+    if err:
+        return err
+    p, n = invoice.file_of(iid)
+    if not p:
+        return bad("파일이 없습니다.", 404)
+    return _inline(p, n)
+
+
+@app.delete("/api/invoice/{iid}")
+async def api_invoice_del(iid: int, req: Request):
+    me, err = guard(req, "원재료", 3)
+    if err:
+        return err
+    return run(invoice.delete, iid, me["name"], client_ip(req))
+
+
 # ════════════════════════════════════════════ 한줄 메모
 @app.get("/api/memos")
 async def api_memos(req: Request):
@@ -1293,9 +1607,17 @@ app.mount("/css", StaticFiles(directory=os.path.join(WEB_DIR, "css")), name="css
 app.mount("/js", StaticFiles(directory=os.path.join(WEB_DIR, "js")), name="js")
 
 
+def _index_html():
+    """index.html 의 /js/*.js 에 버전을 붙여 — 업데이트 뒤 브라우저가 옛 스크립트를 쓰지 않게."""
+    with open(os.path.join(WEB_DIR, "index.html"), encoding="utf-8") as f:
+        html = f.read()
+    html = html.replace('.js"></script>', '.js?v=%s"></script>' % VERSION)
+    return Response(html, media_type="text/html; charset=utf-8", headers={"Cache-Control": "no-cache"})
+
+
 @app.get("/")
 async def index():
-    return FileResponse(os.path.join(WEB_DIR, "index.html"))
+    return _index_html()
 
 
 @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
@@ -1306,9 +1628,8 @@ async def spa(path: str):
     full = os.path.join(WEB_DIR, path)
     if os.path.isfile(full):
         return FileResponse(full)
-    idx = os.path.join(WEB_DIR, "index.html")
-    if os.path.isfile(idx):
-        return FileResponse(idx)
+    if os.path.isfile(os.path.join(WEB_DIR, "index.html")):
+        return _index_html()
     return PlainTextResponse("web/index.html 이 없습니다.", status_code=404)
 
 

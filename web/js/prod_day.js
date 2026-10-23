@@ -1,5 +1,6 @@
 /* 생산실적 하루치 한 번에 입력 (엑셀처럼) — 생산실적 입력 화면의 [하루치 입력] */
-App.prodDay = function (root, date, onBack) {
+/* [개선] preset = {rows, scanId} : 작업일보 스캔(OCR)으로 읽은 줄을 미리 채움 */
+App.prodDay = function (root, date, onBack, preset) {
   var esc = App.esc;
   var NUM = function (k, l, w, g) { return { k: k, l: l, w: w || 52, t: 'num', g: g }; };
   var COLS = [
@@ -48,7 +49,8 @@ App.prodDay = function (root, date, onBack) {
     '<button class="btn" data-a="back">‹ 목록으로</button>' +
     '<button class="btn small" data-a="prev">◀</button><input type="date" class="input" data-date value="' + date + '" style="width:150px"><button class="btn small" data-a="next">▶</button>' +
     '<span data-hol class="muted"></span><span class="grow"></span>' +
-    (lv >= 2 ? '<button class="btn" data-a="add">+ 줄 추가</button><button class="btn" data-a="add5">+ 5줄</button><button class="btn primary" data-a="save">한 번에 저장</button>' : '') +
+    (lv >= 2 ? '<button class="btn" data-a="wo" title="[개선] 그날 작업지시서의 설비 · 제번을 줄로 채웁니다 — 수량만 넣으면 됩니다">작업지시서 불러오기</button>' +
+      '<button class="btn" data-a="add">+ 줄 추가</button><button class="btn" data-a="add5">+ 5줄</button><button class="btn primary" data-a="save">한 번에 저장</button>' : '') +
     '</div>' +
     '<div class="muted" style="font-size:12px;margin:-4px 0 6px;line-height:1.6">Enter = 아래 칸 · Tab = 옆 칸 · ↑↓ 줄 이동 · 엑셀에서 여러 칸 복사해서 붙여넣기 가능 · 숫자 칸에 <b>100+100+120</b> 처럼 쓰면 계산 · 시간은 0830 처럼 써도 됨 · ' +
     '구분은 휴일이면 자동 (종료가 17시를 넘는 줄이 하나라도 있으면 그날 모두 특근2), 직접 바꾸면 그대로 · 줄 번호의 ⧉ 복사 · ✕ 삭제</div>' +
@@ -169,7 +171,7 @@ App.prodDay = function (root, date, onBack) {
     date = d;
     App.store.set('prod_day_last', d);
     $('[data-date]').value = d;
-    return Promise.all([App.get('/api/production/day?date=' + d), App.refList('products', true), App.refList('equipment')]).then(function (res) {
+    return Promise.all([App.get('/api/production/day?date=' + d), App.refList('products', true), App.refList('equipment'), App.refList('workers')]).then(function (res) {
       info = res[0];
       prods = {};
       res[1].forEach(function (p) { prods[(p.code || '').toUpperCase()] = p; });
@@ -188,10 +190,43 @@ App.prodDay = function (root, date, onBack) {
         return r;
       });
       deleted = [];
+      if (preset && preset.rows && preset.date === d) {
+        addRows(preset.rows, true);
+        App.toast('스캔에서 읽은 ' + preset.rows.length + '줄을 채웠습니다. 확인 · 고친 뒤 [한 번에 저장] 하세요.', '', 6000);
+      }
       var need = Math.max(5, 30 - rows.length);
       if (rows.length) need = 5;
       for (var i = 0; i < need; i++) rows.push(blank());
       render();
+    }).catch(App.err);
+  }
+  // [개선] 바깥에서 받은 줄(작업지시서 · 스캔)을 빈 줄 자리에 채움. warn 이면 확인할 줄로 표시
+  function addRows(list, warn) {
+    var used = rows.filter(hasContent);
+    var have = {};
+    used.forEach(function (r) { have[r.equip_no + '|' + String(r.code).toUpperCase()] = 1; });
+    list.forEach(function (x) {
+      var r = blank();
+      KEYS.forEach(function (k) { if (x[k] !== undefined && x[k] !== null) r[k] = x[k]; });
+      r._dirty = true;
+      var msg = (warn && x._warn && x._warn.length) ? ['확인: ' + x._warn.join(', ')] : [];
+      if (have[r.equip_no + '|' + String(r.code).toUpperCase()]) msg.push('같은 설비 · 제번 줄이 이미 있습니다 — 중복이면 ✕ 로 지우세요');
+      if (msg.length) r._err = msg.join(' / ');
+      used.push(r);
+    });
+    rows = used;
+    autoKind();
+  }
+  function fromWo() {
+    App.get('/api/production/from_wo?date=' + date).then(function (w) {
+      var have = {};
+      rows.filter(hasContent).forEach(function (r) { have[r.equip_no + '|' + String(r.code).toUpperCase()] = 1; });
+      var add = w.rows.filter(function (x) { return !have[x.equip_no + '|' + x.code.toUpperCase()]; });
+      if (!add.length) { App.toast('작업지시서의 설비 · 제번이 이미 모두 있습니다.'); return; }
+      addRows(add.map(function (x) { return { equip_no: x.equip_no, code: x.code, day_worker: x.day_worker, night_worker: x.night_worker }; }));
+      for (var i = 0; i < 3; i++) rows.push(blank());
+      render();
+      App.toast('작업지시서 (' + (w.status || '작성중') + ')에서 ' + add.length + '줄을 채웠습니다. R/L · 시간만 넣으세요.');
     }).catch(App.err);
   }
   function dirty() { return rows.some(function (r) { return r._dirty && hasContent(r); }) || deleted.length > 0; }
@@ -224,6 +259,8 @@ App.prodDay = function (root, date, onBack) {
         return;
       }
       App.toast('저장했습니다 — 새로 ' + r.new + ' · 수정 ' + r.upd + (r.deleted ? ' · 삭제 ' + r.deleted : '') + '건');
+      if (preset && preset.scanId) { App.api('POST', '/api/scan/' + preset.scanId + '/applied').catch(function () {}); }
+      preset = null;
       App.refreshBadges();
       load(date);
     }).catch(App.err);
@@ -334,6 +371,7 @@ App.prodDay = function (root, date, onBack) {
     else if (act === 'prev' || act === 'next') { var x = new Date(date + 'T00:00:00'); x.setDate(x.getDate() + (act === 'prev' ? -1 : 1)); go(x.getFullYear() + '-' + ('0' + (x.getMonth() + 1)).slice(-2) + '-' + ('0' + x.getDate()).slice(-2)); }
     else if (act === 'add' || act === 'add5') { for (var n = 0; n < (act === 'add' ? 1 : 5); n++) rows.push(blank()); render(); }
     else if (act === 'save') save();
+    else if (act === 'wo') fromWo();
   });
   $('[data-date]').addEventListener('change', function () { if (this.value) go(this.value); });
   load(date);

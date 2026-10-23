@@ -6,7 +6,7 @@ k(키)·l(라벨)·t(타입)·req·hide·ref·opts·grp·w·default 를 사용�
 타입: text, num, int, date, time, select, ref, yesno, memo
 """
 
-VERSION = "2.0.1"
+VERSION = "2.1.0"
 COMPANY = "대흥공업"
 
 # ──────────────────────────────────────────────────── 기준정보 테이블
@@ -242,6 +242,8 @@ MENU_DEF = [
         ("workorder", "작업지시서", "workorder", {}),
         ("plan", "납기 · 생산계획", "plan", {}),
         ("prod_entry", "생산실적 입력", "prod_entry", {}),
+        ("prod_scan", "작업일보 스캔 (OCR)", "prod_scan", {}),     # [개선] 신규
+        ("floor", "현장 입력 (태블릿)", "floor_admin", {}),         # [개선] 신규
         ("prod_daily", "일일 생산현황", "report", {"report": "daily"}),
         ("prod_monthly", "월간 생산현황", "report", {"report": "monthly"}),
         ("prod_equip", "설비 가동률 · OEE", "report", {"report": "equip"}),
@@ -257,13 +259,16 @@ MENU_DEF = [
         ("claims", "고객불만 · 8D", "claims", {}),               # [개선] 신규
         ("gauges", "계측기 교정관리", "gauges", {}),             # [개선] 신규
         ("quality_docs", "품질문서(CP/FMEA/도면)", "quality_docs", {}),  # [개선] 신규
+        ("q_month", "품질 월간 리포트", "report", {"report": "qmonth"}),  # [개선] 신규
     ]),
     ("금형관리", "금형관리", [
         ("mold_status", "타수 · 정비 알람", "mold_status", {}),
+        ("mold_board", "금형 위치 · 사진/도면", "mold_board", {}),   # [개선] 신규 (현황판 대체)
         ("mold_maint", "정비이력", "mold_maint", {}),
         ("mold_repair", "수리이력", "mold_repair", {}),
         ("parts", "금형부품 재고", "parts", {}),
         ("parts_tx", "금형부품 입출고 이력", "parts_tx", {}),
+        ("mold_cost", "유지비 · 부품 구매단가", "mold_cost", {}),   # [개선] 신규
     ]),
     ("근태관리", "근태관리", [
         ("att_month", "월별 근태", "att", {"tab": "month"}),
@@ -274,6 +279,8 @@ MENU_DEF = [
         ("rm_stock", "원재료 재고", "rawmat", {"tab": "stock"}),
         ("rm_lot", "코일 LOT 추적", "rmlot", {}),               # [개선] 신규
         ("rm_hist", "원재료 입출고 이력", "rawmat", {"tab": "hist"}),
+        ("rm_need", "소요량 · 수율 · 발주 알림", "rm_need", {}),     # [개선] 신규
+        ("invoices", "거래명세서 입력", "invoices", {}),            # [개선] 신규
     ]),
     ("출하관리", "출하관리", [
         ("ship_prep", "출하 준비", "ship", {"tab": "prep"}),

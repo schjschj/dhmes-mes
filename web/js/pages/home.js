@@ -133,8 +133,11 @@ App.pages.home = function (root) {
     }
     // [개선] 납기 임박 · 불량률 추이 · 비가동 상위 사유 · 품질 알림
     var x = d.extra || {};
-    if (x.due || x.downtime || x.defect_trend) {
+    if (x.due || x.downtime || x.defect_trend || x.rm) {
       var eb = '';
+      if (x.rm && (x.rm.order || x.rm.warn)) eb += '<div class="wo-nums" style="margin-bottom:8px"><span><b class="' + (x.rm.order ? 'bad-t' : '') + '">' + x.rm.order + '</b>원재료 발주 필요</span>' +
+        '<span><b class="' + (x.rm.warn ? 'warn-t' : '') + '">' + x.rm.warn + '</b>원재료 부족 주의</span>' +
+        (x.rm.top.length ? '<span class="muted" style="font-size:11.5px">' + x.rm.top.map(function (t) { return esc(t.mat) + ' ' + fmt(Math.round(t.order)) + 'kg'; }).join(' · ') + '</span>' : '') + '</div>';
       if (x.due) eb += '<div class="wo-nums" style="margin-bottom:8px"><span><b class="' + (x.due.t ? 'bad-t' : '') + '">' + x.due.t + '</b>+20일 결품 품번</span><span><b>' + x.due.s + '</b>월말 결품 품번</span>' +
         '<span class="muted" style="font-size:11.5px">납기 ' + esc(x.due.file_date) + ' 기준</span></div>';
       if (x.defect_trend) {

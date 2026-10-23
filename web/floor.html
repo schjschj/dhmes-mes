@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>현장 입력</title>
+<style>
+  /* [개선제안] 현장 태블릿 입력 — 손가락으로 누르기 쉽게 큰 버튼 */
+  :root { --bg:#f3f5f8; --panel:#fff; --line:#d9dee6; --ink:#1d2533; --muted:#6b7585; --accent:#2f6fd0; --ok:#2f8f46; --bad:#c83a3a; --warn:#d98b00; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:"Malgun Gothic","Apple SD Gothic Neo",sans-serif; font-size:17px; -webkit-tap-highlight-color:transparent; }
+  header { display:flex; align-items:center; gap:12px; padding:10px 14px; background:#1f3354; color:#fff; position:sticky; top:0; z-index:5; }
+  header b { font-size:19px; } header .grow { flex:1; } header .clock { font-size:20px; font-variant-numeric:tabular-nums; }
+  header button { background:rgba(255,255,255,.15); color:#fff; border:0; border-radius:8px; padding:8px 12px; font-size:15px; }
+  main { padding:12px; max-width:1300px; margin:0 auto; }
+  .eqs { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:10px; }
+  .eq { background:var(--panel); border:2px solid var(--line); border-radius:14px; padding:12px; min-height:118px; text-align:left; font:inherit; color:inherit; cursor:pointer; }
+  .eq .no { font-size:26px; font-weight:800; } .eq .sub { color:var(--muted); font-size:13px; }
+  .eq.run { border-color:var(--ok); background:#eef8f0; } .eq.down { border-color:var(--bad); background:#fdeeee; }
+  .eq .st { margin-top:6px; font-weight:700; } .eq .code { font-size:15px; margin-top:2px; word-break:break-all; }
+  .sheet { position:fixed; inset:0; background:rgba(15,25,40,.45); display:flex; align-items:flex-end; justify-content:center; z-index:10; }
+  .sheet .in { background:var(--panel); width:100%; max-width:760px; max-height:92vh; overflow:auto; border-radius:18px 18px 0 0; padding:16px 18px 24px; }
+  .sheet h2 { margin:0 0 10px; font-size:24px; display:flex; align-items:center; gap:10px; } .sheet h2 .x { margin-left:auto; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0; }
+  .btn { border:2px solid var(--line); background:var(--panel); border-radius:12px; padding:14px 18px; font:inherit; font-weight:700; min-height:56px; cursor:pointer; color:inherit; }
+  .btn.big { flex:1; font-size:21px; min-height:72px; } .btn.pri { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .btn.ok { background:var(--ok); border-color:var(--ok); color:#fff; } .btn.bad { background:var(--bad); border-color:var(--bad); color:#fff; }
+  .btn.on { background:#fde3e3; border-color:var(--bad); color:var(--bad); } .btn.sel { background:#e3edfc; border-color:var(--accent); }
+  .btn:disabled { opacity:.5; }
+  label { display:block; font-size:14px; color:var(--muted); margin:10px 0 4px; }
+  input, select { width:100%; font:inherit; font-size:20px; padding:12px; border:2px solid var(--line); border-radius:10px; background:#fff; color:inherit; }
+  .kv { display:grid; grid-template-columns:110px 1fr; gap:4px 10px; font-size:16px; } .kv span:nth-child(odd) { color:var(--muted); }
+  .msg { padding:12px; border-radius:10px; margin:8px 0; font-weight:700; } .msg.bad { background:#fdeeee; color:var(--bad); } .msg.ok { background:#eef8f0; color:var(--ok); }
+  .muted { color:var(--muted); font-size:14px; }
+  .done { margin-top:18px; } .done div { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:8px 12px; margin:6px 0; font-size:15px; }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .login { max-width:380px; margin:12vh auto; background:var(--panel); border-radius:16px; padding:24px; }
+  #toast { position:fixed; left:50%; bottom:24px; transform:translateX(-50%); background:#1d2533; color:#fff; padding:12px 18px; border-radius:10px; font-size:16px; display:none; z-index:20; max-width:90vw; }
+</style>
+</head>
+<body>
+<header><b>현장 입력</b><span class="clock" id="clock"></span><span class="grow"></span><span id="who"></span><button id="rf">새로고침</button></header>
+<main id="main"><div class="muted">불러오는 중…</div></main>
+<div id="toast"></div>
+<script>
+(function () {
+  'use strict';
+  var S = null, timer = null;
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function store(k, v) { try { if (v === undefined) return localStorage.getItem('floor_' + k); localStorage.setItem('floor_' + k, v); } catch (e) { return null; } }
+  function toast(m, ms) { var t = $('#toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(function () { t.style.display = 'none'; }, ms || 2500); }
+  function api(method, url, body) {
+    return fetch(url, { method: method, credentials: 'same-origin', headers: body ? { 'Content-Type': 'application/json' } : {}, body: body ? JSON.stringify(body) : undefined })
+      .then(function (r) { return r.json().then(function (j) { if (r.status === 401) { login(); throw new Error('로그인이 필요합니다.'); } if (!r.ok) throw new Error(j.error || '오류 ' + r.status); return j; }); },
+        function () { throw new Error('서버에 연결할 수 없습니다.'); });
+  }
+  function hm(ts) { return ts ? ts.slice(11, 16) : ''; }
+  function mins(n) { n = n || 0; return n >= 60 ? Math.floor(n / 60) + '시간 ' + (n % 60) + '분' : n + '분'; }
+  setInterval(function () { var d = new Date(); $('#clock').textContent = ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }, 1000);
+
+  function login(msg) {
+    clearInterval(timer);
+    $('#main').innerHTML = '<div class="login"><h2 style="margin-top:0">로그인</h2>' + (msg ? '<div class="msg bad">' + esc(msg) + '</div>' : '') +
+      '<label>아이디</label><input id="lid" autocomplete="username"><label>비밀번호</label><input id="lpw" type="password" autocomplete="current-password">' +
+      '<div class="row"><button class="btn big pri" id="lgo">로그인</button></div><div class="muted">사무실에서 만든 현장용 계정(생산관리 입력 권한)으로 로그인하세요.</div></div>';
+    var go = function () {
+      api('POST', '/api/login', { login: $('#lid').value.trim(), password: $('#lpw').value, remember: true }).then(load).catch(function (e) { login(e.message); });
+    };
+    $('#lgo').onclick = go;
+    $('#lpw').onkeydown = function (e) { if (e.key === 'Enter') go(); };
+  }
+  function load() {
+    return api('GET', '/api/floor/state').then(function (s) {
+      S = s;
+      $('#who').textContent = s.me;
+      draw();
+      clearInterval(timer);
+      timer = setInterval(function () { if (!$('.sheet')) load().catch(function () {}); }, 30000);
+    }).catch(function (e) { if (e.message !== '로그인이 필요합니다.') $('#main').innerHTML = '<div class="msg bad">' + esc(e.message) + '</div>'; });
+  }
+  function dname(k) { var x = S.downs.filter(function (d) { return d.k === k; })[0]; return x ? x.l : k; }
+  function draw() {
+    var h = '<div class="eqs">' + S.equips.map(function (e) {
+      var r = e.run, cls = r ? (r.down_open ? 'down' : 'run') : '';
+      return '<button class="eq ' + cls + '" data-eq="' + esc(e.no) + '"><div class="no">' + esc(e.no) + '<span class="sub"> 호기 ' + esc(e.ton ? e.ton + 'T' : '') + '</span></div>' +
+        (r ? '<div class="code">' + esc(r.code) + '</div><div class="st" style="color:' + (r.down_open ? 'var(--bad)' : 'var(--ok)') + '">' +
+          (r.down_open ? '⏸ ' + esc(dname(r.down_open.k)) + ' ' + hm(r.down_open.s) + '~' : '▶ 작업 중 ' + mins(r.elapsed)) + '</div><div class="sub">' + esc(r.worker) + ' · ' + hm(r.start_ts) + ' 시작</div>'
+          : '<div class="st" style="color:var(--muted)">대기</div>' + (e.codes.length ? '<div class="sub">지시: ' + esc(e.codes.map(function (c) { return c.code; }).join(', ')) + '</div>' : '')) + '</button>';
+    }).join('') + '</div>';
+    if (S.done.length) h += '<div class="done"><b>오늘 끝난 작업</b>' + S.done.slice(0, 20).map(function (r) {
+      return '<div>' + esc(r.equip_no) + '호기 · ' + esc(r.code) + ' · ' + hm(r.start_ts) + '~' + hm(r.end_ts) + ' · ' + (r.day_reels || 0) + '/' + (r.night_reels || 0) + ' R/L · ' +
+        (r.status === '반영' ? '<b style="color:var(--ok)">생산실적 반영</b>' : '<b style="color:var(--bad)">' + esc(r.status) + '</b> <span class="muted">' + esc(r.error || '') + '</span>') + '</div>';
+    }).join('') + '</div>';
+    $('#main').innerHTML = h;
+  }
+  function sheet(html) {
+    var d = document.createElement('div'); d.className = 'sheet'; d.innerHTML = '<div class="in">' + html + '</div>';
+    d.addEventListener('click', function (e) { if (e.target === d || e.target.closest('.x')) close(); });
+    document.body.appendChild(d);
+    return d;
+  }
+  function close() { var s = $('.sheet'); if (s) s.remove(); }
+  function wsel(id, v) {
+    return '<select id="' + id + '">' + ['<option value=""></option>'].concat(S.workers.map(function (w) { return '<option' + (w === v ? ' selected' : '') + '>' + esc(w) + '</option>'; })).join('') + '</select>';
+  }
+  function startSheet(e) {
+    var code = e.codes.length ? e.codes[0].code : '';
+    var d = sheet('<h2>' + esc(e.no) + '호기 작업 시작<button class="btn x">닫기</button></h2><label>제번 (지시서 · 최근 생산)</label><div class="row" id="codes">' +
+      e.codes.map(function (c) { return '<button class="btn' + (c.code === code ? ' sel' : '') + '" data-c="' + esc(c.code) + '">' + esc(c.code) + '<br><span class="muted">' + esc(c.name) + '</span></button>'; }).join('') +
+      '</div><label>다른 제번 찾기</label><input id="q" placeholder="제번 · 품명 일부"><div class="row" id="found"></div>' +
+      '<div class="two"><div><label>작업자</label>' + wsel('wk', store('worker') || '') + '</div><div><label>코일 LOT (선택)</label><input id="lot"></div></div>' +
+      '<div class="row"><button class="btn big ok" id="go">▶ 작업 시작</button></div>');
+    function pick(c) { code = c; Array.prototype.forEach.call(d.querySelectorAll('[data-c]'), function (b) { b.classList.toggle('sel', b.dataset.c === c); }); }
+    d.addEventListener('click', function (ev) { var b = ev.target.closest('[data-c]'); if (b) pick(b.dataset.c); });
+    var qt = null;
+    $('#q', d).oninput = function () {
+      var v = this.value.trim(); clearTimeout(qt);
+      if (v.length < 2) { $('#found', d).innerHTML = ''; return; }
+      qt = setTimeout(function () {
+        api('GET', '/api/floor/products?q=' + encodeURIComponent(v)).then(function (rs) {
+          $('#found', d).innerHTML = rs.map(function (c) { return '<button class="btn" data-c="' + esc(c.code) + '">' + esc(c.code) + '<br><span class="muted">' + esc(c.name || '') + '</span></button>'; }).join('') || '<span class="muted">없음</span>';
+        }).catch(function (x) { toast(x.message); });
+      }, 250);
+    };
+    $('#go', d).onclick = function () {
+      if (!code) return toast('제번을 고르세요.');
+      var w = $('#wk', d).value; if (!w) return toast('작업자를 고르세요.');
+      store('worker', w);
+      this.disabled = true;
+      api('POST', '/api/floor/start', { equip_no: e.no, code: code, worker: w, coil_lot: $('#lot', d).value.trim() })
+        .then(function () { close(); toast(e.no + '호기 ' + code + ' 작업 시작'); load(); })
+        .catch(function (x) { $('#go', d).disabled = false; toast(x.message, 4000); });
+    };
+  }
+  function runSheet(e) {
+    var r = e.run;
+    var dm = Object.keys(r.down_min).map(function (k) { return dname(k) + ' ' + r.down_min[k] + '분'; }).join(', ');
+    var d = sheet('<h2>' + esc(e.no) + '호기 · ' + esc(r.code) + '<button class="btn x">닫기</button></h2>' +
+      '<div class="kv"><span>작업자</span><span>' + esc(r.worker) + '</span><span>시작</span><span>' + esc(r.start_ts.slice(5, 16)) + ' (' + mins(r.elapsed) + ' 지남)</span>' +
+      '<span>비가동</span><span>' + esc(dm || '없음') + '</span>' + (r.coil_lot ? '<span>코일 LOT</span><span>' + esc(r.coil_lot) + '</span>' : '') + '</div>' +
+      '<label>비가동 (누르면 시작, 다시 누르면 끝)</label><div class="row">' + S.downs.map(function (x) {
+        var on = r.down_open && r.down_open.k === x.k;
+        return '<button class="btn big' + (on ? ' on' : '') + '" data-dn="' + x.k + '">' + (on ? '⏹ ' : '⏸ ') + esc(x.l) + (on ? '<br><span style="font-size:13px">' + hm(r.down_open.s) + '~ 끝내기</span>' : '') + '</button>';
+      }).join('') + '</div><div class="row"><button class="btn big bad" id="fin">■ 작업 종료</button></div>' +
+      (S.interlock ? '<div class="muted">초품 승인 인터락이 켜져 있습니다. 초품검사 승인 전에 종료하면 생산실적에 바로 안 들어갑니다.</div>' : ''));
+    d.addEventListener('click', function (ev) {
+      var b = ev.target.closest('[data-dn]'); if (!b) return;
+      var on = r.down_open && r.down_open.k === b.dataset.dn;
+      api('POST', '/api/floor/' + r.id + '/' + (on ? 'up' : 'down'), { k: b.dataset.dn }).then(function () { close(); toast(on ? '비가동 끝' : dname(b.dataset.dn) + ' 시작'); load(); }).catch(function (x) { toast(x.message); });
+    });
+    $('#fin', d).onclick = function () { close(); finishSheet(e); };
+  }
+  function finishSheet(e) {
+    var r = e.run, now = new Date(), hh = now.getHours() * 60 + now.getMinutes();
+    var se = (S.shift_end || '20:30').split(':'), shiftEnd = +se[0] * 60 + +se[1];
+    var st = +r.start_ts.slice(11, 13) * 60 + +r.start_ts.slice(14, 16);
+    var night = st >= shiftEnd || st < 7 * 60, cross = !night && (hh >= shiftEnd || hh < st);
+    var d = sheet('<h2>' + esc(e.no) + '호기 작업 종료<button class="btn x">닫기</button></h2><div class="muted">' + esc(r.code) + ' · ' + esc(r.start_ts.slice(11, 16)) + ' 시작</div>' +
+      '<div class="two"><div><label>주간 R/L</label><input id="dr" inputmode="decimal" value=""></div><div><label>야간 R/L</label><input id="nr" inputmode="decimal" value=""></div></div>' +
+      '<label>비고 (선택)</label><input id="nt"><div class="row"><button class="btn big bad" id="go">■ 종료하고 실적 넣기</button></div>' +
+      '<div class="row"><button class="btn" id="zero">생산 없음 (셋업만 하고 끝)</button></div>');
+    (night ? $('#nr', d) : $('#dr', d)).focus();
+    if (cross) toast('주간 · 야간에 걸친 작업입니다. 각각 R/L 을 넣으세요.', 4000);
+    function send(zero) {
+      $('#go', d).disabled = true;
+      api('POST', '/api/floor/' + r.id + '/finish', { day_reels: $('#dr', d).value.trim(), night_reels: $('#nr', d).value.trim(), note: $('#nt', d).value.trim(), zero_ok: !!zero })
+        .then(function (x) { close(); toast(x.ok ? '생산실적에 넣었습니다.' : '종료했지만 실적 미반영: ' + x.error, x.ok ? 2500 : 7000); load(); })
+        .catch(function (x) { $('#go', d).disabled = false; toast(x.message, 4000); });
+    }
+    $('#go', d).onclick = function () { send(false); };
+    $('#zero', d).onclick = function () { send(true); };
+  }
+  document.addEventListener('click', function (ev) {
+    var b = ev.target.closest('[data-eq]'); if (!b || !S) return;
+    var e = S.equips.filter(function (x) { return x.no === b.dataset.eq; })[0];
+    if (S.level < 2) return toast('입력 권한이 없습니다 (생산관리 입력 권한 필요).');
+    if (e.run) runSheet(e); else startSheet(e);
+  });
+  $('#rf').onclick = function () { load(); };
+  load();
+})();
+</script>
+</body>
+</html>

@@ -156,6 +156,13 @@ def check_interlock(row):
     if not ok:
         raise ValueError("%s %s호기 %s 초품검사 합격·승인 기록이 없어서 생산실적을 넣을 수 없습니다 (품질관리 > 초중종물 검사)."
                          % (row.get("date"), row.get("equip_no"), row.get("code")))
+    # [개선] 금형 수리 후에도 동일: 그날 이 제번의 금형을 수리했으면 '금형수리 후' 검사 승인도 있어야 함
+    rep = db.one("""SELECT r.mold_no FROM mold_repair r JOIN products p ON p.mold_no=r.mold_no
+                    WHERE UPPER(p.code)=UPPER(?) AND r.date=? LIMIT 1""", (row.get("code") or "", row.get("date")))
+    if rep and not db.one("""SELECT id FROM q_inproc WHERE date=? AND UPPER(code)=UPPER(?) AND stage='금형수리 후'
+                             AND result='합격' AND approved_by IS NOT NULL""", (row.get("date"), row.get("code") or "")):
+        raise ValueError("%s 금형 %s 을(를) 수리했습니다. '금형수리 후' 검사 합격·승인 뒤에 생산실적을 넣을 수 있습니다 (품질관리 > 초중종물 검사)."
+                         % (row.get("date"), rep["mold_no"]))
 
 
 # ── 계측기

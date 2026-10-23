@@ -1,7 +1,7 @@
 /* 생산 보고서 공통 화면: 서버 /api/report/<이름> 이 준 섹션(표·차트)을 그대로 그림 */
 App.pages.report = function (root, args, item) {
   var name = args.report;
-  var MODE = { daily: 'date', monthly: 'month', equip: 'range', worker: 'range', defect: 'year', month: 'month', year: 'month' }[name] || 'range';
+  var MODE = { daily: 'date', monthly: 'month', equip: 'range', worker: 'range', defect: 'year', month: 'month', year: 'month', qmonth: 'month' }[name] || 'range';
   root.innerHTML = '<div class="toolbar"><span data-period style="display:contents"></span><span class="grow"></span>' +
     '<button class="btn" data-a="print">인쇄</button><button class="btn" data-a="xlsx">엑셀로 저장</button></div><div data-body><div class="muted">불러오는 중…</div></div>';
   var body = root.querySelector('[data-body]');

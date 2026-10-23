@@ -245,4 +245,47 @@ def defect(q):
     ]}
 
 
-REPORTS = {"daily": daily, "monthly": monthly, "equip": equip, "worker": worker, "month": month, "year": year, "defect": defect}
+def qmonth(q):
+    """[개선] 품질 월간 리포트 — 불량률 · F-cost · 고객불만 · 수입검사 · 초중종물 · 계측기."""
+    import quality
+    ym = q.get("ym") or datetime.date.today().strftime("%Y-%m")
+    d1, d2 = _ym_range(ym)
+    made = sum(r["qty"] for r in prodcalc.rows(d1, d2))
+    dq = _defect_qty(d1, d2)
+    fcost = db.one("""SELECT COALESCE(SUM(d.qty * COALESCE(p.price,0)),0) c FROM defects d LEFT JOIN products p ON p.code=d.code
+                      WHERE d.date BETWEEN ? AND ?""", (d1, d2))["c"]
+    cl = db.rows("SELECT * FROM q_claims WHERE date BETWEEN ? AND ? ORDER BY date", (d1, d2))
+    ccost = sum(r["cost"] or 0 for r in cl)
+    inc = db.rows("SELECT * FROM q_incoming WHERE date BETWEEN ? AND ? ORDER BY date", (d1, d2))
+    inc_bad = [r for r in inc if r["result"] == "불합격"]
+    ip = db.rows("SELECT * FROM q_inproc WHERE date BETWEEN ? AND ?", (d1, d2))
+    gs = [quality._gauge_due(r) for r in db.rows("SELECT * FROM q_gauges WHERE COALESCE(status,'')<>'폐기'")]
+    td = _target("target_defect_rate")
+    rate = dq / made if made else None
+    kpi = [["생산량(EA)", None, made], ["공정불량(EA)", None, dq], ["공정불량률", td, rate],
+           ["불량 손실 금액 (F-cost, 원)", None, fcost], ["고객불만 (건)", None, len(cl)], ["고객불만 비용 (원)", None, ccost],
+           ["고객불만 미결 (건, 전체)", None, db.one("SELECT COUNT(*) n FROM q_claims WHERE COALESCE(status,'')<>'완료'")["n"]],
+           ["수입검사 (건)", None, len(inc)], ["수입검사 불합격률", None, (len(inc_bad) / len(inc)) if inc else None],
+           ["초중종물 검사 (건)", None, len(ip)], ["초중종물 불합격 (건)", None, sum(1 for r in ip if r["result"] == "불합격")],
+           ["계측기 교정 지남 / 임박", None, "%d / %d" % (sum(1 for g in gs if g["due_state"] == "지남"), sum(1 for g in gs if g["due_state"] == "임박"))]]
+    by = db.rows("""SELECT COALESCE(defect_code,'(미분류)') c, COALESCE(SUM(qty),0) q FROM defects WHERE date BETWEEN ? AND ?
+                    GROUP BY c ORDER BY q DESC""", (d1, d2))
+    return {"title": "품질 월간 리포트 %s" % ym, "subtitle": "목표 불량률은 설정 · 백업 화면에서 정합니다", "sections": [
+        {"title": "① 품질 지표", "cols": [C("항목", "text", 190), C("목표", "auto"), C("실적", "auto")],
+         "rowtypes": ["int", "int", "pct2", "int", "int", "int", "int", "int", "pct", "int", "int", "text"], "rows": kpi},
+        {"title": "② 불량코드별 (파레토)", "type": "bars", "labels": [r["c"] for r in by], "series": [{"name": "불량(EA)", "values": [r["q"] for r in by]}]},
+        {"title": "③ 고객불만", "cols": [C("번호", "text", 95), C("접수일", "text", 80), C("고객", "text", 90), C("제번", "text", 90),
+                                       C("유형", "text"), C("수량"), C("비용"), C("8D", "text"), C("상태", "text")],
+         "rows": [[r["claim_no"], r["date"], r["customer"], r["code"], r["type"], r["qty"], r["cost"],
+                   "%d/8" % sum(1 for k in ("d1_team", "d2_problem", "d3_contain", "d4_cause", "d5_action", "d6_verify", "d7_prevent", "d8_close") if r.get(k)),
+                   r["status"]] for r in cl]},
+        {"title": "④ 수입검사 불합격", "cols": [C("입고일", "text", 80), C("코일 LOT", "text", 110), C("자재번호", "text"), C("공급사", "text"),
+                                          C("외관", "text"), C("포장", "text"), C("비고", "text", 200)],
+         "rows": [[r["date"], r["lot_no"], r["mat_code"], r["maker"], r["appearance"], r["packing"], r["note"]] for r in inc_bad]},
+        {"title": "⑤ 계측기 교정 지남 · 임박", "cols": [C("관리번호", "text"), C("명칭", "text", 150), C("다음 검교정", "text"), C("다음 자체점검", "text"), C("상태", "text")],
+         "rows": [[g["gauge_no"], g["name"], g["next_cal"], g["next_check"], g["due_state"]] for g in gs if g["due_state"] in ("지남", "임박")]},
+    ]}
+
+
+REPORTS = {"daily": daily, "monthly": monthly, "equip": equip, "worker": worker, "month": month, "year": year, "defect": defect,
+           "qmonth": qmonth}

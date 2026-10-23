@@ -168,12 +168,38 @@ FIXED_SCHEMA = [
         id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, code TEXT, title TEXT, rev TEXT, rev_date TEXT,
         file_name TEXT, file_path TEXT, file_size INTEGER, current INTEGER DEFAULT 1, note TEXT,
         created TEXT, created_by TEXT)""",
+    # [개선] 작업일보 스캔 (OCR)
+    """CREATE TABLE IF NOT EXISTS prod_scans(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, file_name TEXT, file_path TEXT, file_size INTEGER,
+        text TEXT, rows TEXT, status TEXT, applied_at TEXT, applied_by TEXT, created TEXT, created_by TEXT)""",
+    # [개선] 현장 태블릿 입력 (작업 시작 · 비가동 · 종료)
+    """CREATE TABLE IF NOT EXISTS floor_runs(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, equip_no TEXT, code TEXT, worker TEXT,
+        start_ts TEXT, end_ts TEXT, downs TEXT, day_reels REAL, night_reels REAL, reels REAL, coil_lot TEXT,
+        note TEXT, error TEXT, status TEXT,
+        production_id INTEGER, created TEXT, created_by TEXT, updated TEXT, updated_by TEXT)""",
+    # [개선] 금형 이동 (현황판) · 사진 · 도면
+    """CREATE TABLE IF NOT EXISTS mold_moves(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, mold_no TEXT, ts TEXT, state TEXT, place TEXT,
+        from_state TEXT, from_place TEXT, worker TEXT, note TEXT, created_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS mold_files(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, mold_no TEXT, kind TEXT, title TEXT, rev TEXT, rev_date TEXT,
+        file_name TEXT, file_path TEXT, file_size INTEGER, current INTEGER DEFAULT 1, note TEXT,
+        created TEXT, created_by TEXT)""",
+    # [개선] 거래명세서 자동 입력
+    """CREATE TABLE IF NOT EXISTS invoices(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, date TEXT, supplier TEXT, doc_no TEXT, total INTEGER,
+        file_name TEXT, file_path TEXT, src TEXT, note TEXT, created TEXT, created_by TEXT)""",
+    """CREATE TABLE IF NOT EXISTS invoice_items(
+        id INTEGER PRIMARY KEY AUTOINCREMENT, invoice_id INTEGER, seq INTEGER, target TEXT, item TEXT, spec TEXT,
+        material TEXT, qty REAL, unit TEXT, unit_price REAL, amount REAL, part_id INTEGER, lot_no TEXT, mat_code TEXT,
+        weight REAL, ref_id INTEGER, note TEXT)""",
 ]
 
 # 이미 만든 테이블에 나중에 생긴 컬럼 (ALTER 로 보충)
 EXTRA_COLS = {
     "users": [("note", "TEXT"), ("last_login", "TEXT")],
-    "parts_tx": [("after_qty", "INTEGER")],
+    "parts_tx": [("after_qty", "INTEGER"), ("price", "REAL"), ("supplier", "TEXT"), ("invoice_id", "INTEGER")],
 }
 
 
