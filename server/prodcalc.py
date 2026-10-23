@@ -166,21 +166,35 @@ def defect_index(d1=None, d2=None):
     return by_eq, by_code
 
 
+def product_of(products, code):
+    """제번 → 제품. 원본처럼 대소문자 무시 ('740482-3(B)' → '740482-3(b)')."""
+    code = code or ""
+    p = products.get(code)
+    if p is None:
+        up = products.get("__upper__")
+        if up is None:
+            up = products["__upper__"] = {k.upper(): v for k, v in products.items() if k != "__upper__" and k}
+        p = up.get(code.upper())
+    return p or {}
+
+
 def enrich(row, std, products, molds, defects=None):
-    p = products.get(row.get("code")) or {}
-    m = molds.get(p.get("mold_no")) or {}
+    p = product_of(products, row.get("code"))
     reels = _num(row.get("day_reels")) + _num(row.get("night_reels"))
     reel_qty = _num(p.get("reel_qty"))
-    cav = _num(m.get("cavity")) or 1
     spm = _num(p.get("spm"))
-    eff = _eff(p.get("efficiency"))
+    eff = _eff(p.get("efficiency")) if _num(p.get("efficiency")) > 0 else 0.0   # 원본: 효율이 비면 이론 0
     work, day_min, night_min = work_split(row, std)
     down = sum(_num(row.get(k)) for k in DT_KEYS)
     run = max(0, work - down)
     qty = reels * reel_qty
-    unit = spm * cav * eff
+    # 원본과 같게: 분당 이론 생산 = SPM × 효율 × OEE 타당생산수(없으면 1). (Cavity 는 쓰지 않음)
+    unit = spm * eff * (_num(p.get("valid_count")) or 1)
     theo = run * unit
     inspect = reels * _num(std.get("inspect_per_reel"))
+    # LOSS 칸은 무게 → 제품 1개 무게로 나눠 개수로 (원본과 같음)
+    w1 = _num(p.get("weight"))
+    loss_pcs = inspect + (sum(_num(row.get(k)) for k in LOSS_KEYS) / w1 if w1 else 0)
     dq = 0
     if defects:
         by_eq, by_code = defects
@@ -201,13 +215,15 @@ def enrich(row, std, products, molds, defects=None):
         "night_min": round(night_min),
         "downtime": round(down),
         "run_min": round(run),
-        "shots": round(qty / cav) if cav else 0,
-        "loss_pcs": round(sum(_num(row.get(k)) for k in LOSS_KEYS) + inspect),
+        "shots": round(qty + loss_pcs),           # 원본: 타수 = 생산량 + LOSS 개수
+        "loss_pcs": round(loss_pcs),
+        "total_use": round(loss_pcs),
         "inspect_loss": round(inspect),
         "defect_qty": round(dq or 0),
         "theo": round(theo),
         "unit_rate": unit,
         "missing": 1 if (not p.get("mold_no") or not spm) else 0,
+        "valid_count": p.get("valid_count"),
     })
     return out
 

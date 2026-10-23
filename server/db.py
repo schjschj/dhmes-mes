@@ -265,8 +265,39 @@ def create_user(login, name, pw, admin=0, perms=None, by="", must_change=1):
     return one("SELECT * FROM users WHERE login=?", (login,))
 
 
+def _legacy_ok(stored, pw):
+    """원본 MES 형식 'pbkdf2$salt$hash' (반복 횟수 · salt 인코딩을 몰라서 흔한 값을 차례로 맞춰 봄)."""
+    import hmac
+    try:
+        _, salt, want = stored.split("$")
+    except ValueError:
+        return False
+    salts = [salt.encode("utf-8")]
+    try:
+        salts.append(bytes.fromhex(salt))
+    except ValueError:
+        pass
+    for it in (100000, 120000, 200000, 260000, 150000, 310000, 390000, 600000, 50000, 10000, 1000):
+        for s in salts:
+            for algo in ("sha256", "sha512", "sha1"):
+                h = hashlib.pbkdf2_hmac(algo, pw.encode("utf-8"), s, it)
+                if hmac.compare_digest(h.hex()[:len(want)], want):
+                    return True
+    return False
+
+
 def check_password(user, pw):
-    return user and user.get("pw_hash") == _hash(pw, user.get("pw_salt", ""))
+    if not user:
+        return False
+    stored = user.get("pw_hash") or ""
+    if stored.startswith("pbkdf2$"):
+        if not _legacy_ok(stored, pw):
+            return False
+        # 원본에서 옮긴 비밀번호 → 맞으면 새 형식으로 바꿔 둠 (must_change 는 그대로)
+        salt = secrets.token_hex(8)
+        run("UPDATE users SET pw_hash=?, pw_salt=? WHERE id=?", (_hash(pw, salt), salt, user["id"]))
+        return True
+    return stored == _hash(pw, user.get("pw_salt", ""))
 
 
 def set_password(user_id, pw, by=""):

@@ -6,6 +6,8 @@
 잔여 = 주기 − after, 잔여율 = 잔여 / 주기.
 알람: 잔여 < 0 → 초과, 잔여율 ≤ 2차 기준 → 2차, ≤ 1차 기준 → 1차 (설정 · 백업에서 기준 변경)
 """
+import re
+
 import db
 import prodcalc
 
@@ -23,46 +25,75 @@ def thresholds():
     return a1, a2
 
 
-def _prod_shots():
-    """금형별 생산실적 타수 (기초 기준일 이후 실적만)."""
-    molds = {m["mold_no"]: m for m in db.rows("SELECT mold_no, base_date FROM molds")}
+VARIANT_RE = re.compile(r"^(.+)-(\d+)$")
+
+
+def base_of_map(nos):
+    """모디파이(변형) 금형 → 기본 금형. '10159C-11' 은 '10159C' 가 있으면 그 변형 (원본과 같은 규칙)."""
+    s = set(nos)
+    out = {}
+    for n in nos:
+        m = VARIANT_RE.match(n or "")
+        out[n] = m.group(1) if m and m.group(1) in s else n
+    return out
+
+
+def _prod_shots(base_of, base_dates):
+    """기본 금형별 생산실적 타수 (변형 금형 실적 포함, 기초 기준일 이후 실적만).
+    {base: [(date, shots), ...]} — 정비일까지의 타수를 구하려고 날짜별로 남김."""
     out = {}
     for r in prodcalc.rows():
         mn = r.get("mold_no")
         if not mn:
             continue
-        bd = (molds.get(mn) or {}).get("base_date")
+        b = base_of.get(mn, mn)
+        bd = base_dates.get(b)
         if bd and (r.get("date") or "") <= bd:
             continue
-        out[mn] = out.get(mn, 0) + (r.get("shots") or 0)
+        out.setdefault(b, []).append((r.get("date") or "", r.get("shots") or 0))
     return out
 
 
 def status(include_all=False):
     a1, a2 = thresholds()
-    prod = _prod_shots()
+    all_molds = db.rows("SELECT * FROM molds ORDER BY mold_no")
+    base_of = base_of_map([m["mold_no"] for m in all_molds])
+    variants = {}
+    for n, b in base_of.items():
+        if n != b:
+            variants.setdefault(b, []).append(n)
+    prod = _prod_shots(base_of, {m["mold_no"]: m.get("base_date") for m in all_molds})
     maint = db.rows("SELECT * FROM mold_maint ORDER BY date, id")
     last = {}
     for m in maint:
-        d = last.setdefault(m["mold_no"], {})
+        d = last.setdefault(base_of.get(m["mold_no"], m["mold_no"]), {})
         for kind in ("oh", "clean", "partchg"):
             if m.get(kind):
                 d[kind] = (m.get("shots") or 0, m.get("date"))
     out = []
-    for m in db.rows("SELECT * FROM molds ORDER BY mold_no"):
-        if not include_all and (m.get("status") == "폐기"):
+    for m in all_molds:
+        if base_of[m["mold_no"]] != m["mold_no"]:
+            continue                                    # 변형 금형은 기본 금형 줄에 묶음
+        managed = bool(m.get("managed")) if m.get("managed") is not None else True
+        if not include_all and (m.get("status") == "폐기" or not managed):
             continue
-        prod_shots = round(prod.get(m["mold_no"], 0))
+        plist = prod.get(m["mold_no"], [])
+        prod_shots = round(sum(s for _, s in plist))
         shots = (m.get("base_shots") or 0) + prod_shots + (m.get("adj_shots") or 0)
         row = dict(m)
-        row.update({"prod_shots": prod_shots, "shots": shots, "added_shots": prod_shots,
-                    "variants": [], "variant_of": None})
+        row.update({"prod_shots": prod_shots, "shots": shots,
+                    "variants": sorted(variants.get(m["mold_no"], []), key=lambda v: v), "variant_of": None})
         worst = ""
-        managed = bool(m.get("managed")) if m.get("managed") is not None else True
         for kind, cyc_key, base_key, mkey in KINDS:
             cycle = m.get(cyc_key) or 0
             lm = last.get(m["mold_no"], {}).get(mkey)
-            base_shots = lm[0] if lm else (m.get(base_key) or 0)
+            # 원본과 같게: 정비가 기초 기준일 당일 · 이후면 그 날까지의 누적 타수(정비 기록에 타수를 적었으면 그 값),
+            # 기준일 이전(또는 정비 기록 없음)이면 금형 정보의 '…기초타수'
+            if lm and (not m.get("base_date") or (lm[1] or "") >= m["base_date"]):
+                base_shots = lm[0] or ((m.get("base_shots") or 0) + (m.get("adj_shots") or 0) +
+                                       round(sum(s for d, s in plist if d <= (lm[1] or ""))))
+            else:
+                base_shots = m.get(base_key) or 0
             row[kind + "_last"] = lm[1] if lm else None
             after = shots - base_shots
             row[kind + "_after"] = after
@@ -95,21 +126,23 @@ def status(include_all=False):
 
 def detail(no):
     rows = {r["mold_no"]: r for r in status(include_all=True)}
-    m = rows.get(no)
-    if not m:
-        m = next((r for k, r in rows.items() if k.upper() == (no or "").upper()), None)
+    base_of = base_of_map([r["mold_no"] for r in db.rows("SELECT mold_no FROM molds")])
+    key = next((k for k in base_of if k.upper() == (no or "").upper()), None)
+    m = rows.get(base_of.get(key)) if key else None
     if not m:
         return None
     base = m["mold_no"]
+    group = [base] + m["variants"]
+    ph = ",".join("?" * len(group))
     types = {t["code"]: t["name"] for t in db.rows("SELECT code, name FROM repair_types")}
-    repairs = db.rows("SELECT * FROM mold_repair WHERE mold_no=? ORDER BY date DESC, id DESC LIMIT 300", (base,))
+    repairs = db.rows("SELECT * FROM mold_repair WHERE mold_no IN (%s) ORDER BY date DESC, id DESC LIMIT 300" % ph, group)
     for r in repairs:
         r["type_names"] = ", ".join(types.get(t, t) for t in (r.get("types") or "").split(",") if t)
     return {
-        "asked": no, "mold": m, "group": [base], "variants": [],
-        "maint": db.rows("SELECT * FROM mold_maint WHERE mold_no=? ORDER BY date DESC, id DESC", (base,)),
+        "asked": no, "mold": m, "group": group, "variants": m["variants"],
+        "maint": db.rows("SELECT * FROM mold_maint WHERE mold_no IN (%s) ORDER BY date DESC, id DESC" % ph, group),
         "repairs": repairs,
-        "products": db.rows("SELECT code, name, mold_no FROM products WHERE mold_no=? ORDER BY code", (base,)),
+        "products": db.rows("SELECT code, name, mold_no FROM products WHERE mold_no IN (%s) ORDER BY code" % ph, group),
     }
 
 
